@@ -2,9 +2,18 @@
 """
 APEX Cloud Scheduler — Railway deployment entry point.
 
-Runs two jobs on a Mon-Fri schedule (UTC):
-  21:05  -> python run_prod.py --mode signals
-  13:31  -> python run_prod.py --mode execution
+Runs two jobs on a Mon-Fri schedule, anchored to NYSE local time
+(America/New_York), NOT a fixed UTC offset:
+  17:05 ET  -> python run_prod.py --mode signals    (after 16:00 ET close)
+  09:31 ET  -> python run_prod.py --mode execution  (after 09:30 ET open)
+
+Using an America/New_York cron trigger (not UTC) means these times
+auto-adjust across DST transitions with zero code changes -- APScheduler
+resolves the IANA timezone's UTC offset at each fire, so 09:31 ET stays
+09:31 ET whether that's 13:31 UTC (EDT, Mar-Nov) or 14:31 UTC (EST,
+Nov-Mar). This also sidesteps the US/UK DST mismatch entirely (US DST
+ends first Sunday of Nov, UK BST ends last Sunday of Oct -- the two are
+offset by up to a week each year), since nothing here is keyed to UK time.
 
 Retry policy: up to MAX_RETRIES attempts per job.
               RETRY_DELAY_SEC between attempts.
@@ -47,9 +56,15 @@ logger = logging.getLogger("scheduler")
 
 MAX_RETRIES    = int(os.environ.get("APEX_MAX_RETRIES", 3))
 RETRY_DELAY    = int(os.environ.get("APEX_RETRY_DELAY_SEC", 300))   # 5 min between retries
-SIGNAL_HOUR    = int(os.environ.get("APEX_SIGNAL_HOUR", 21))
+
+# All times below are America/New_York LOCAL time (NYSE hours), not UTC.
+# The scheduler itself runs in this timezone (see BlockingScheduler below),
+# so these fire at the same NYSE-local clock time year-round regardless of
+# US or UK daylight saving state.
+SCHED_TZ       = "America/New_York"
+SIGNAL_HOUR    = int(os.environ.get("APEX_SIGNAL_HOUR", 17))   # 17:05 ET, after 16:00 ET close
 SIGNAL_MIN     = int(os.environ.get("APEX_SIGNAL_MIN", 5))
-EXEC_HOUR      = int(os.environ.get("APEX_EXEC_HOUR", 13))
+EXEC_HOUR      = int(os.environ.get("APEX_EXEC_HOUR", 9))      # 09:31 ET, after 09:30 ET open
 EXEC_MIN       = int(os.environ.get("APEX_EXEC_MIN", 31))
 
 
@@ -145,9 +160,9 @@ def on_job_event(event) -> None:
 
 def main() -> None:
     logger.info(
-        "APEX Scheduler starting | signals=%02d:%02d UTC | execution=%02d:%02d UTC | "
-        "retries=%d | retry_delay=%ds | days=Mon-Fri",
-        SIGNAL_HOUR, SIGNAL_MIN, EXEC_HOUR, EXEC_MIN, MAX_RETRIES, RETRY_DELAY,
+        "APEX Scheduler starting | signals=%02d:%02d ET | execution=%02d:%02d ET | "
+        "retries=%d | retry_delay=%ds | days=Mon-Fri | tz=%s (auto DST)",
+        SIGNAL_HOUR, SIGNAL_MIN, EXEC_HOUR, EXEC_MIN, MAX_RETRIES, RETRY_DELAY, SCHED_TZ,
     )
 
     send_alert(
@@ -156,14 +171,15 @@ def main() -> None:
         telegram_text=(
             f"🕐 <b>APEX SCHEDULER STARTED</b>\n"
             f"──────────────────────\n"
-            f"Signals:   {SIGNAL_HOUR:02d}:{SIGNAL_MIN:02d} UTC (Mon-Fri)\n"
-            f"Execution: {EXEC_HOUR:02d}:{EXEC_MIN:02d} UTC (Mon-Fri)\n"
+            f"Signals:   {SIGNAL_HOUR:02d}:{SIGNAL_MIN:02d} ET (Mon-Fri)\n"
+            f"Execution: {EXEC_HOUR:02d}:{EXEC_MIN:02d} ET (Mon-Fri)\n"
             f"Retries:   {MAX_RETRIES} × {RETRY_DELAY // 60}min gap\n"
+            f"Timezone:  {SCHED_TZ} (auto-adjusts for DST)\n"
             f"──────────────────────"
         ),
     )
 
-    scheduler = BlockingScheduler(timezone="UTC")
+    scheduler = BlockingScheduler(timezone=SCHED_TZ)
     scheduler.add_listener(on_job_event, EVENT_JOB_ERROR)
 
     # EOD signals — after US market close

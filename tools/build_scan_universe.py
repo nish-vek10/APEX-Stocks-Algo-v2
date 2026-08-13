@@ -2,13 +2,19 @@
 """
 APEX — Scanner Universe Builder
 
-Fetches tickers from Finviz Elite (matching backtest universe construction exactly):
+Fetches tickers from Finviz Elite — EXACT replica of ALGO-Stocks backtest
+universe construction (research/experiments/04_apply_universe_filters.py):
   - USA-listed equities
   - Market cap >= $300M
-  - REITs excluded
-  - Active listings only
+  - REIT/real-estate excluded via the same 4-rule engine as
+    data/metadata/reit_exclusion.csv (sector_equals "Real Estate";
+    industry_contains "REIT" / "REIT -" / "Real Estate")
+  - Universe is fully RE-DERIVED each run (not merged with the previous
+    production.yaml list) — matches the backtest's fresh-pull philosophy.
+    Expect ~2,800-2,900 tickers, not the legacy 528.
 
-Falls back to S&P 500 + NASDAQ 100 from Wikipedia if FINVIZ_EXPORT_URL not set.
+Falls back to S&P 500 + NASDAQ 100 from Wikipedia (merged with current) if
+FINVIZ_EXPORT_URL not set — degraded path only, not backtest-accurate.
 
 Tickers without an IG epic generate signals but do NOT execute orders.
 Orchestrator skips execution if no epic is mapped (by design).
@@ -44,14 +50,28 @@ IG_EPIC_MAP     = ROOT / "config" / "ig_epic_map.yaml"
 # ── Finviz filter thresholds ──────────────────────────────────────────────────
 MIN_MARKET_CAP_USD = 300_000_000   # $300M — matches backtest filter exactly
 
-# Sectors/industries to exclude (REITs and real estate — same as backtest)
-_REIT_INDUSTRIES = {
-    "reit", "real estate investment trust", "real estate",
-    "mortgage reit", "diversified reit", "office reit",
-    "retail reit", "residential reit", "industrial reit",
-    "healthcare reit", "hotel & motel reit", "specialty reit",
-}
-_REIT_SECTORS = {"real estate"}
+# REIT/real-estate exclusion rules — EXACT replica of ALGO-Stocks
+# data/metadata/reit_exclusion.csv (research/experiments/04_apply_universe_filters.py
+# apply_exclusions()). Do not add/remove rules here without updating that file too —
+# this must stay byte-identical to the backtest's exclusion engine.
+_EXCLUSION_RULES = [
+    {"rule_type": "sector_equals",      "pattern": "Real Estate"},
+    {"rule_type": "industry_contains",  "pattern": "REIT"},
+    {"rule_type": "industry_contains",  "pattern": "REIT -"},
+    {"rule_type": "industry_contains",  "pattern": "Real Estate"},
+]
+
+
+def _apply_exclusion_rules(df: pd.DataFrame) -> pd.DataFrame:
+    """Backtest-identical exclusion engine (sector_equals / industry_contains)."""
+    keep = pd.Series(True, index=df.index)
+    for r in _EXCLUSION_RULES:
+        rule, pattern = r["rule_type"], r["pattern"]
+        if rule == "sector_equals" and "sector" in df.columns:
+            keep &= df["sector"].astype(str).str.strip() != pattern
+        elif rule == "industry_contains" and "industry" in df.columns:
+            keep &= ~df["industry"].astype(str).str.contains(pattern, case=False, na=False)
+    return df.loc[keep].copy()
 
 # Always skip these regardless of source
 _SKIP = {
@@ -115,13 +135,8 @@ def fetch_finviz_universe() -> list[str]:
             df = df[df[mcap_col] >= (MIN_MARKET_CAP_USD / 1_000_000)]
             print(f"  After $300M cap filter: {len(df)}")
 
-        # ── Filter 3: Exclude REITs ────────────────────────────────────────
-        for col in ("sector", "industry"):
-            if col in df.columns:
-                mask = df[col].str.lower().str.strip().isin(
-                    _REIT_SECTORS if col == "sector" else _REIT_INDUSTRIES
-                )
-                df = df[~mask]
+        # ── Filter 3: Exclude REITs (exact backtest rule engine) ───────────
+        df = _apply_exclusion_rules(df)
         print(f"  After REIT exclusion: {len(df)}")
 
         # ── Extract tickers ────────────────────────────────────────────────
@@ -263,33 +278,51 @@ def main() -> None:
     finviz  = set(fetch_finviz_universe())
 
     # Fallback: Wikipedia if Finviz not configured
+    used_fallback = False
     if not finviz:
         finviz = set(fetch_sp500()) | set(fetch_nasdaq100())
+        used_fallback = True
 
-    all_tickers = (current | finviz) - _SKIP
+    # Backtest philosophy: universe is fully RE-DERIVED from Finviz each run,
+    # not merged with whatever was previously in production.yaml. This matches
+    # 04_apply_universe_filters.py in ALGO-Stocks exactly (fresh USA + cap +
+    # REIT-exclusion pull every time, no incremental accretion of stale names).
+    # The Wikipedia fallback path is the one exception where we merge with
+    # current, since it's a degraded/partial source, not the real universe.
+    if used_fallback:
+        all_tickers = (current | finviz) - _SKIP
+    else:
+        all_tickers = finviz - _SKIP
     all_tickers = {t for t in all_tickers if t and isinstance(t, str)}
     all_sorted  = sorted(all_tickers)
 
     added    = all_tickers - current
+    removed  = current - all_tickers
     mapped   = {t for t in all_tickers if t in epics}
     unmapped = all_tickers - mapped
 
     print(f"\n{'─'*60}")
     print(f"Current universe  : {len(current)}")
-    print(f"Finviz universe   : {len(finviz)}")
-    print(f"Combined (deduped): {len(all_tickers)}")
-    print(f"New additions     : {len(added)}")
+    print(f"Finviz universe   : {len(finviz)}  (fallback used: {used_fallback})")
+    print(f"New universe      : {len(all_tickers)}")
+    print(f"Added             : {len(added)}")
+    print(f"Removed           : {len(removed)}")
     print(f"IG-mapped (exec)  : {len(mapped)}")
     print(f"Scan-only (signal): {len(unmapped)}")
     print(f"{'─'*60}")
 
     if not args.apply:
         print("\nDRY RUN — pass --apply to write changes")
-        print("\nSample new tickers (first 20):")
+        print("\nSample added tickers (first 20):")
         for t in sorted(added)[:20]:
-            print(f"  {t:<12} {'✓ epic' if t in epics else '  scan only'}")
+            print(f"  {t:<12} {'epic mapped' if t in epics else 'scan only'}")
         if len(added) > 20:
             print(f"  ... and {len(added) - 20} more")
+        print("\nSample removed tickers (first 20):")
+        for t in sorted(removed)[:20]:
+            print(f"  {t}")
+        if len(removed) > 20:
+            print(f"  ... and {len(removed) - 20} more")
     else:
         update_production_yaml(all_sorted)
         print("Done.")

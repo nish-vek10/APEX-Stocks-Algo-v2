@@ -158,6 +158,67 @@ def fetch_universe_twelvedata(
     return universe_data
 
 
+# ── Cache-based fetch (primary path for daily production runs) ─────────────────
+
+CACHE_DIR = Path(__file__).resolve().parents[2] / "data" / "raw" / "prices_daily" / "twelvedata"
+PARQUETS_DIR = CACHE_DIR / "parquets"
+
+
+def fetch_universe_from_cache(
+    tickers: List[str],
+    lookback_days: int = 300,
+    fallback_to_live: bool = True,
+    api_key: Optional[str] = None,
+) -> Dict[str, pd.DataFrame]:
+    """
+    Fetch OHLCV for the universe from the local parquet cache built by
+    tools/build_td_cache.py. This is the fast path used by the orchestrator
+    for daily EOD signal runs -- avoids hitting TwelveData's 8 credits/min
+    limit on every run (~2,900 tickers would take ~6 hours otherwise).
+
+    Run `python tools/build_td_cache.py` after EOD close to keep the cache
+    current before this is called.
+
+    Falls back to a live single-ticker fetch (fetch_ticker_twelvedata) for
+    any ticker missing from cache or with stale/partial data, if enabled.
+
+    Returns: {ticker: DataFrame}  (trimmed to the most recent lookback_days rows)
+    """
+    results: Dict[str, pd.DataFrame] = {}
+    missing: List[str] = []
+
+    for ticker in tickers:
+        parquet_path = PARQUETS_DIR / f"{ticker}.parquet"
+        if not parquet_path.exists():
+            missing.append(ticker)
+            continue
+        try:
+            df = pd.read_parquet(parquet_path)
+            if df.empty:
+                missing.append(ticker)
+                continue
+            df = df.sort_values("date").tail(lookback_days + 60).reset_index(drop=True)
+            results[ticker] = df
+        except Exception as exc:
+            logger.warning(f"{ticker}: failed to read cache parquet -- {exc}")
+            missing.append(ticker)
+
+    logger.info(f"twelvedata cache: {len(results)}/{len(tickers)} tickers loaded, {len(missing)} missing/stale")
+
+    if missing and fallback_to_live:
+        key = api_key or os.environ.get("TWELVEDATA_API_KEY", "").strip()
+        if key:
+            logger.info(f"Live-fetching {len(missing)} cache-miss tickers via TwelveData...")
+            for i, ticker in enumerate(missing, 1):
+                df = fetch_ticker_twelvedata(ticker, key, lookback_days)
+                if df is not None and not df.empty:
+                    results[ticker] = df
+                if i < len(missing):
+                    time.sleep(SLEEP_BETWEEN)
+
+    return results
+
+
 def _yfinance_fallback(ticker: str, lookback_days: int) -> Optional[pd.DataFrame]:
     """yfinance fallback for individual failed tickers."""
     try:

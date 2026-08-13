@@ -58,6 +58,7 @@ def resolve_mt5_credentials(prod_cfg: Dict[str, Any]) -> Dict[str, Any]:
         "server": os.environ.get("MT5_SERVER", mt5.get("server", "")),
         "login": int(os.environ.get("MT5_LOGIN", mt5.get("login", 0))),
         "password": os.environ.get("MT5_PASSWORD", mt5.get("password", "")),
+        "path": os.environ.get("MT5_TERMINAL_PATH", mt5.get("path", "")) or None,
         "timeout_ms": mt5.get("timeout_ms", 10000),
         "magic_number": mt5.get("magic_number", 20240001),
     }

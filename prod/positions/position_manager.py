@@ -45,7 +45,19 @@ class PositionManager:
         shares: float,
         signal: Dict[str, Any],
         mt5_symbol: str,
+        mt5_volume: Optional[float] = None,
     ) -> None:
+        """
+        `shares`: underlying share-equivalent exposure -- used for $ P&L math
+        on close (see close_position). For IG this equals the order size
+        directly. For MT5 this is volume * contract_size (see
+        order_builder.resolve_mt5_volume), NOT the raw MT5 lot count.
+
+        `mt5_volume`: the actual MT5 lot volume sent to order_send, only set
+        in MT5 mode. Needed separately from `shares` because closing an MT5
+        position requires the broker's lot volume, not the share-equivalent
+        figure. None for IG positions.
+        """
         self._positions[ticker] = {
             "ticker": ticker,
             "mt5_symbol": mt5_symbol,
@@ -53,6 +65,7 @@ class PositionManager:
             "entry_price": entry_price,
             "stop_price": stop_price,
             "shares": shares,
+            "mt5_volume": mt5_volume,
             "stop_distance": entry_price - stop_price,
             "signal_date": str(signal.get("signal_date", "")),
             "entry_date": str(pd.Timestamp.now().date()),
@@ -63,6 +76,7 @@ class PositionManager:
         logger.info(
             f"POSITION OPENED: {ticker} | ticket={mt5_ticket} | "
             f"entry={entry_price:.2f} | stop={stop_price:.2f} | shares={shares}"
+            + (f" | mt5_volume={mt5_volume}" if mt5_volume is not None else "")
         )
 
     def close_position(

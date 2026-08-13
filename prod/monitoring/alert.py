@@ -106,17 +106,26 @@ def send_alert(
 
 # ── Typed alert helpers ────────────────────────────────────────────────────────
 
-def alert_signal_found(ticker: str, stage: int, signal_date: str) -> None:
-    """Signal detected — end of day."""
+def alert_signal_found(ticker: str, stage: int, signal_date: str, stage_name: str = "") -> None:
+    """
+    Signal detected — end of day.
+
+    `stage_name` should be the actual stage label ("Breakout" for Stage 6,
+    "Breakout Confirmed" for Stage 7 -- these are the only two entry
+    stages). Previously this message hardcoded "(Breakout Confirmed)"
+    regardless of which stage actually fired, which was wrong for Stage 6
+    signals. Falls back to a generic label if not provided.
+    """
+    label = stage_name or ("Breakout Confirmed" if stage == 7 else "Breakout" if stage == 6 else f"Stage {stage}")
     tg = (
         f"📡 <b>APEX SIGNAL</b>\n"
         f"Ticker:  <b>{ticker}</b>\n"
-        f"Stage:   {stage} (Breakout Confirmed)\n"
+        f"Stage:   {stage} ({label})\n"
         f"Date:    {signal_date}\n"
         f"Action:  Execute next AM open"
     )
     send_alert(
-        f"Signal: {ticker} Stage {stage} @ {signal_date}",
+        f"Signal: {ticker} Stage {stage} ({label}) @ {signal_date}",
         level="INFO",
         telegram_text=tg,
     )
@@ -161,8 +170,21 @@ def alert_order_rejected(
     epic: str,
     reason: str,
     environment: str,
+    is_exit: bool = False,
 ) -> None:
-    """Order was rejected by IG or paper guard."""
+    """
+    Order was rejected by the broker or paper guard. Used for BOTH failed
+    entries and failed exits (prod/orchestrator.py calls this from both
+    run_execution()'s entry loop and _process_exits()) -- `is_exit` controls
+    the footer line, since "no position opened" is wrong/misleading when an
+    EXIT failed (the position is still open and needs manual attention,
+    the opposite situation).
+    """
+    footer = (
+        "⚠️ Exit FAILED — position is still OPEN. Manual review/close required."
+        if is_exit else
+        "⚠️ Review logs — no position opened."
+    )
     tg = (
         f"❌ <b>APEX ORDER REJECTED</b>\n"
         f"──────────────────────\n"
@@ -170,7 +192,7 @@ def alert_order_rejected(
         f"Reason:  {reason}\n"
         f"Mode:    {environment.upper()}\n"
         f"──────────────────────\n"
-        f"⚠️ Review logs — no position opened."
+        f"{footer}"
     )
     send_alert(
         f"Order REJECTED: {ticker} ({epic}) — {reason} [{environment.upper()}]",

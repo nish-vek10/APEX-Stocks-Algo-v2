@@ -32,9 +32,14 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import pandas as pd
 import yaml
+from dotenv import load_dotenv
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT_DIR = ROOT / "tools" / "output"
+
+# Standalone script (no APEX package imports) but still needs .env for
+# MT5_LOGIN / MT5_PASSWORD / MT5_SERVER / MT5_TERMINAL_PATH.
+load_dotenv(ROOT / ".env")
 
 logging.basicConfig(
     level=logging.INFO,
@@ -130,8 +135,9 @@ class SymbolSpec:
     error: str = ""
 
 
-def connect_mt5(login: int, password: str, server: str, timeout_ms: int = 10000) -> bool:
-    if not mt5.initialize():
+def connect_mt5(login: int, password: str, server: str, timeout_ms: int = 10000, path: str = "") -> bool:
+    initialized = mt5.initialize(path=path) if path else mt5.initialize()
+    if not initialized:
         logger.error(f"MT5 initialize() failed: {mt5.last_error()}")
         return False
 
@@ -453,10 +459,11 @@ def export_csv(specs: List[SymbolSpec], path: Path) -> None:
 
 
 # ─── Main ─────────────────────────────────────────────────────────────────────
-def get_credentials(args: argparse.Namespace) -> Tuple[int, str, str]:
+def get_credentials(args: argparse.Namespace) -> Tuple[int, str, str, str]:
     login = args.login or int(os.environ.get("MT5_LOGIN", "0") or "0")
     password = args.password or os.environ.get("MT5_PASSWORD", "")
     server = args.server or os.environ.get("MT5_SERVER", "")
+    path = args.path or os.environ.get("MT5_TERMINAL_PATH", "")
 
     if not login:
         login = int(input("MT5 Login (account number): ").strip())
@@ -465,7 +472,7 @@ def get_credentials(args: argparse.Namespace) -> Tuple[int, str, str]:
     if not server:
         server = input("MT5 Server: ").strip()
 
-    return login, password, server
+    return login, password, server, path
 
 
 def main() -> None:
@@ -473,6 +480,7 @@ def main() -> None:
     parser.add_argument("--login", type=int, default=0)
     parser.add_argument("--password", type=str, default="")
     parser.add_argument("--server", type=str, default="")
+    parser.add_argument("--path", type=str, default="", help="Path to terminal64.exe (custom MT5 install location)")
     parser.add_argument(
         "--tickers",
         type=str,
@@ -485,19 +493,31 @@ def main() -> None:
         default="",
         help="Additional comma-separated tickers to append",
     )
+    parser.add_argument(
+        "--from-universe",
+        action="store_true",
+        help="Load the full ticker list from config/production.yaml "
+             "(universe.tickers) instead of the small built-in US_TICKERS "
+             "sample. Use this to check real broker coverage against the "
+             "actual ~2,900-ticker scan universe. Ignored if --tickers is set.",
+    )
     args = parser.parse_args()
 
-    login, password, server = get_credentials(args)
+    login, password, server, path = get_credentials(args)
 
-    if not connect_mt5(login, password, server):
+    if not connect_mt5(login, password, server, path=path):
         sys.exit(1)
 
     try:
-        tickers = (
-            [t.strip() for t in args.tickers.split(",") if t.strip()]
-            if args.tickers
-            else list(US_TICKERS)
-        )
+        if args.tickers:
+            tickers = [t.strip() for t in args.tickers.split(",") if t.strip()]
+        elif args.from_universe:
+            import yaml as _yaml
+            cfg = _yaml.safe_load((ROOT / "config" / "production.yaml").read_text(encoding="utf-8"))
+            tickers = [str(t) for t in cfg["universe"]["tickers"]]
+            logger.info(f"Loaded {len(tickers)} tickers from config/production.yaml")
+        else:
+            tickers = list(US_TICKERS)
         if args.extra:
             extras = [t.strip() for t in args.extra.split(",") if t.strip()]
             tickers = list(dict.fromkeys(tickers + extras))

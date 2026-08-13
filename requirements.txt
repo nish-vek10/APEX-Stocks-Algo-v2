@@ -17,5 +17,5 @@ yfinance>=0.2.40
 # TwelveData -- OHLCV data (same source as backtest, exact signal parity)
 twelvedata>=1.2.0
 
-# MT5 execution (legacy -- only needed if broker=mt5, Windows only)
-# MetaTrader5>=5.0.45
+# MT5 execution (Windows only -- required, broker=mt5 is active)
+MetaTrader5>=5.0.45

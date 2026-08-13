@@ -28,7 +28,12 @@ class MT5Connector:
         if not MT5_AVAILABLE:
             raise RuntimeError("MetaTrader5 package not installed.")
 
-        if not mt5.initialize():
+        # Custom terminal install path (e.g. multiple MT5 instances for different
+        # brokers/EAs on one machine) -- MT5_TERMINAL_PATH in .env. If unset,
+        # mt5.initialize() attaches to the default/already-running terminal.
+        path = self._creds.get("path")
+        initialized = mt5.initialize(path=path) if path else mt5.initialize()
+        if not initialized:
             raise ConnectionError(f"MT5 initialize() failed: {mt5.last_error()}")
 
         ok = mt5.login(

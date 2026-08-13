@@ -32,6 +32,7 @@ class StateManager:
             "last_execution_run": None,
             "pending_signals": [],
             "pending_orders": [],
+            "pending_stage9_exits": [],
             "run_count": 0,
         }
 
@@ -63,6 +64,17 @@ class StateManager:
 
     def clear_pending_orders(self) -> None:
         self._state["pending_orders"] = []
+        self._save()
+
+    def set_pending_stage9_exits(self, tickers: List[str]) -> None:
+        self._state["pending_stage9_exits"] = tickers
+        self._save()
+
+    def get_pending_stage9_exits(self) -> List[str]:
+        return self._state.get("pending_stage9_exits", [])
+
+    def clear_pending_stage9_exits(self) -> None:
+        self._state["pending_stage9_exits"] = []
         self._save()
 
     def mark_execution_complete(self) -> None:

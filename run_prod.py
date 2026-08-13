@@ -7,6 +7,10 @@ Usage:
     python run_prod.py --mode execution     # AM:  execute pending signals + process exits
     python run_prod.py --mode full          # Full cycle: signals + execution (for testing)
     python run_prod.py --mode status        # Print current positions + portfolio summary
+    python run_prod.py --reset-circuit-breaker
+                                             # Manually clear a tripped circuit breaker halt
+                                             # (this is the command the Telegram circuit-breaker
+                                             # alert tells you to run)
 
 Environment:
     Set in config/production.yaml:  environment: "paper" | "live"
@@ -40,9 +44,22 @@ def main() -> None:
         default="status",
         help="Run mode",
     )
+    parser.add_argument(
+        "--reset-circuit-breaker",
+        action="store_true",
+        help="Manually clear a tripped circuit breaker halt, then exit (no signals/execution run).",
+    )
     args = parser.parse_args()
 
     setup_logger("apex", ROOT / "logs", console=True)
+
+    if args.reset_circuit_breaker:
+        logger.info("APEX starting | mode=reset-circuit-breaker")
+        orch = APEXOrchestrator()
+        orch.circuit_breaker.reset_halt()
+        print("[DONE] Circuit breaker halt cleared.")
+        return
+
     logger.info(f"APEX starting | mode={args.mode}")
 
     orch = APEXOrchestrator()

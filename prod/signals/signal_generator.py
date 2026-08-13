@@ -170,6 +170,32 @@ class SignalGenerator:
             "direction":      "long",
         }
 
+    def current_stage(
+        self,
+        ticker: str,
+        df: pd.DataFrame,
+    ) -> Optional[int]:
+        """
+        Return today's classified stage for `ticker` WITHOUT the transition/
+        Stage-2-prerequisite gating that `generate()` applies for new
+        entries. Used to monitor OPEN positions for Stage 9 (In-Zone
+        Fading) exits -- see prod/orchestrator.py::_check_stage9_exits.
+
+        Runs the identical indicator+classifier pipeline as generate(), just
+        returns the raw latest stage instead of gating it into an entry
+        signal.
+        """
+        if df.empty or len(df) < 50:
+            return None
+        df = apply_indicators(df, self.ind_cfg)
+        classifier = StageClassifier(ticker, self.state_dir, self.stage_cfg)
+        df = classifier.classify(df)
+        if df.empty:
+            return None
+        last = df.iloc[-1]
+        stage = last.get("stage")
+        return int(stage) if not pd.isna(stage) else None
+
     def generate_all(
         self,
         universe_data: Dict[str, pd.DataFrame],

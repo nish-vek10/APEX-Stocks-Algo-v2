@@ -5,17 +5,31 @@ APEX Master Production Orchestrator.
 Broker dispatch via config/production.yaml -> broker: "ig" | "mt5"
 
 IG mode  (default):
-  Data    -> yfinance (via ig_fetcher.fetch_universe_ig)
+  Data    -> TwelveData cache (via twelvedata_fetcher.fetch_universe_from_cache)
+             -- EXACT backtest data source parity (ALGO-Stocks used TwelveData
+             exclusively). Cache built/refreshed by tools/build_td_cache.py,
+             run after EOD close. Falls back to live TwelveData per-ticker for
+             any cache miss. yfinance (ig_fetcher.py) kept in the codebase as
+             an emergency fallback only -- not used by default anymore.
   Connect -> IGConnector
   Execute -> ig_order_executor.send_order_ig
 
-MT5 mode (legacy):
-  Data    -> MetaTrader5 (via mt5_fetcher.fetch_universe)
+MT5 mode:
+  Data    -> TwelveData cache (same fetch_universe_from_cache as IG mode --
+             exact backtest data source parity). MT5 (mt5_fetcher.py) is
+             NEVER used for signal/indicator calculation, only for:
+               - live tick price at order time (entry ask / exit bid)
+               - order placement with native broker-side SL
+               - lot-size resolution against the symbol's actual
+                 contract_size/volume_step/volume_min (order_builder.
+                 resolve_mt5_volume) -- MT5 lots != IG "shares" units
   Connect -> MT5Connector
   Execute -> order_executor.send_order
 
 All signal / stage / risk / state / position / monitoring code is
 broker-agnostic and completely unchanged regardless of broker selection.
+Position cap: config/production.yaml portfolio.max_open_positions (100).
+Risk per trade: config/risk.yaml equity_pct.risk_pct_per_trade (1%).
 
 Position state compatibility note:
   PositionManager uses field names mt5_ticket / mt5_symbol (legacy naming).
@@ -26,8 +40,10 @@ from __future__ import annotations
 
 import logging
 import math
-from datetime import datetime, timezone
+import os
+from datetime import datetime, time as dt_time, timezone
 from pathlib import Path
+from zoneinfo import ZoneInfo
 from typing import Any, Dict, List, Optional, Tuple
 
 import pandas as pd
@@ -56,7 +72,9 @@ from prod.data.universe import (
 from prod.monitoring.alert import (
     alert_circuit_breaker,
     alert_error,
+    alert_order_rejected,
     alert_order_sent,
+    alert_position_closed,
     alert_signal_found,
 )
 from prod.monitoring.logger import RunLogger
@@ -150,22 +168,67 @@ class APEXOrchestrator:
 
         lookback = self.prod_cfg.get("universe", {}).get("lookback_days", 300)
 
+        # Data is ALWAYS TwelveData cache regardless of broker (see
+        # _fetch_data_mt5 docstring) -- no MT5/IG connection needed for
+        # signal calculation, only for execution.
         if self.broker == "ig":
             universe_data = self._fetch_data_ig(lookback)
         else:
-            with self.connector:
-                tf = self.prod_cfg.get("universe", {}).get("timeframe", "D1")
-                universe_data = self._fetch_data_mt5(tf, lookback)
+            universe_data = self._fetch_data_mt5("D1", lookback)
 
         signals = self.signal_gen.generate_all(universe_data)
 
         for s in signals:
             self.run_logger.log_signal(s)
-            alert_signal_found(s["ticker"], s["stage"], str(s["signal_date"]))
+            alert_signal_found(s["ticker"], s["stage"], str(s["signal_date"]), s.get("stage_name", ""))
 
         self.state_mgr.set_pending_signals(signals)
+
+        # Stage 9 (In-Zone Fading) exit check for currently-open positions --
+        # matches backtest exactly: "signal observed at EOD close, exit sent
+        # at next morning's open" (ALGO-Stocks backtest/engine.py exit #3).
+        self._check_stage9_exits(universe_data)
+
         logger.info("Signal run complete: %d signals.", len(signals))
         return signals
+
+    def _check_stage9_exits(self, universe_data: Dict[str, pd.DataFrame]) -> None:
+        """
+        For every currently open position, classify today's stage using the
+        same universe_data already fetched for signals (no extra fetch).
+        Tickers landing on Stage 9 today are queued for exit at tomorrow's
+        open by _process_exits -- matches backtest exit_reason=stage9_exit.
+        """
+        stage9_tickers: List[str] = []
+        for pos in self.pos_mgr.get_open():
+            ticker = pos["ticker"]
+            df = universe_data.get(ticker)
+            if df is None or df.empty:
+                continue
+            stage = self.signal_gen.current_stage(ticker, df)
+            if stage == 9:
+                stage9_tickers.append(ticker)
+
+        self.state_mgr.set_pending_stage9_exits(stage9_tickers)
+        if stage9_tickers:
+            logger.info("Stage 9 fade detected on %d open position(s): %s", len(stage9_tickers), stage9_tickers)
+
+    @staticmethod
+    def _is_nyse_regular_session() -> bool:
+        """
+        True iff "now" falls within NYSE regular trading hours (09:30-16:00
+        ET, Mon-Fri), using an IANA timezone so this is automatically DST-
+        correct year-round (see scheduler.py for the matching cron trigger).
+
+        Does NOT account for NYSE market holidays (Thanksgiving, Christmas,
+        etc.) -- there is no holiday calendar wired in yet. On a holiday
+        this will incorrectly report the session as open; MT5/IG order
+        rejection is the current backstop for that gap.
+        """
+        now_et = datetime.now(ZoneInfo("America/New_York"))
+        if now_et.weekday() >= 5:  # Sat=5, Sun=6
+            return False
+        return dt_time(9, 30) <= now_et.time() <= dt_time(16, 0)
 
     # -------------------------------------------------------------------------
     # Execution Run
@@ -187,8 +250,18 @@ class APEXOrchestrator:
                 self.run_logger.log_circuit_breaker(cb["reason"])
                 return
 
-            # Process exits first
+            # Process exits first -- never gated on market-hours: closing
+            # existing risk (stop/stage9/time-stop) should never be delayed.
             self._process_exits(equity)
+
+            # NYSE market-hours guard for NEW ENTRIES only. This is a safety
+            # net behind scheduler.py's America/New_York cron (which already
+            # fires at 09:31 ET) -- catches misfires (e.g. a missed-run
+            # catch-up after a server restart firing hours late).
+            if not self._is_nyse_regular_session():
+                logger.warning("Outside NYSE regular hours (09:30-16:00 ET, Mon-Fri) -- no new entries this run.")
+                self.state_mgr.clear_pending_signals()
+                return
 
             # Portfolio cap check
             max_pos = self.prod_cfg.get("portfolio", {}).get("max_open_positions", 5)
@@ -243,21 +316,28 @@ class APEXOrchestrator:
                         fill_price = result.get("price", entry_open)
                         # deal_id for IG, order ticket for MT5 -- stored in mt5_ticket field
                         order_id = result.get("deal_id") or result.get("order", 0)
+                        stop_distance = fill_price - stop_price
+                        risk_dollars = shares * stop_distance
                         self.pos_mgr.open_position(
                             ticker, order_id,
                             fill_price, stop_price,
                             shares, signal, broker_sym,
+                            mt5_volume=result.get("mt5_volume"),
                         )
-                        alert_order_sent(ticker, shares, fill_price, self.environment)
+                        alert_order_sent(
+                            ticker, broker_sym, shares, fill_price, stop_price,
+                            risk_dollars, stop_distance, self.environment,
+                            deal_id=str(order_id),
+                        )
                         self.run_logger.log_position_open(
                             ticker, fill_price, stop_price, shares,
                         )
                         executed += 1
                     else:
-                        logger.error(
-                            "%s: order failed -- reason=%s",
-                            ticker, result.get("reason") or result.get("retcode"),
-                        )
+                        fail_reason = result.get("reason") or result.get("comment") or result.get("retcode")
+                        logger.error("%s: order failed -- reason=%s", ticker, fail_reason)
+                        alert_order_rejected(ticker, broker_sym, str(fail_reason), self.environment)
+                        self.run_logger.log_error(ticker, f"order_failed: {fail_reason}")
 
                 except Exception as exc:
                     logger.error("%s: execution error -- %s", ticker, exc, exc_info=True)
@@ -277,15 +357,34 @@ class APEXOrchestrator:
     # -------------------------------------------------------------------------
 
     def _process_exits(self, equity: float) -> None:
-        """Check all open positions for exit conditions."""
+        """
+        Check all open positions for exit conditions, matching backtest
+        exit priority (ALGO-Stocks backtest/engine.py): gap/stop first,
+        then Stage 9 fade, then time stop.
+
+        Note on gap_protection vs stop_hit: production polls once per day
+        at the AM execution run rather than replaying continuous intraday
+        OHLC bars like the backtest, so "current_price <= stop_price" at
+        this single poll is production's equivalent of the backtest's
+        gap-check (today's open <= stop). True intraday-low stop touches
+        between poll times are instead caught by MT5's native broker-side
+        SL order attached at entry (build_entry_request's sl= field), which
+        the broker enforces continuously, independent of this poll -- this
+        poll is the backstop for cases where that didn't cleanly fire
+        (e.g. a gap-through), plus the two exits MT5 has no native concept
+        of at all: Stage 9 fade and time stop.
+        """
         open_positions = self.pos_mgr.get_open()
-        time_stop = self.prod_cfg.get("exit", {}).get("time_stop_days", 10)
+        time_stop = self.prod_cfg.get("exit", {}).get("time_stop_days", 365)
+        stage9_tickers = set(self.state_mgr.get_pending_stage9_exits())
 
         for pos in open_positions:
             ticker = pos["ticker"]
             broker_sym = pos["mt5_symbol"]   # stores ig_epic in IG mode
             order_id = pos["mt5_ticket"]     # stores ig_deal_id in IG mode
-            shares = pos["shares"]
+            # MT5 close must use the broker LOT volume, not the underlying
+            # share-equivalent "shares" figure used for P&L math.
+            close_volume = pos.get("mt5_volume") or pos["shares"]
             stop_price = pos["stop_price"]
             days_held = pos.get("days_held", 0)
 
@@ -304,7 +403,9 @@ class APEXOrchestrator:
             exit_reason: Optional[str] = None
 
             if current_price > 0 and current_price <= stop_price:
-                exit_reason = "stop_hit"
+                exit_reason = "stop_gap" if days_held == 0 else "stop_hit"
+            elif ticker in stage9_tickers:
+                exit_reason = "stage9_exit"
             elif days_held >= time_stop:
                 exit_reason = "time_stop"
 
@@ -314,11 +415,11 @@ class APEXOrchestrator:
             try:
                 if self.broker == "ig":
                     result = self._execute_exit_ig(
-                        ticker, broker_sym, str(order_id), float(shares),
+                        ticker, broker_sym, str(order_id), float(pos["shares"]),
                     )
                 else:
                     result = self._execute_exit_mt5(
-                        ticker, broker_sym, int(order_id), float(shares),
+                        ticker, broker_sym, int(order_id), float(close_volume),
                     )
 
                 if result["success"]:
@@ -333,16 +434,50 @@ class APEXOrchestrator:
                             trade.get("pnl_r", 0),
                             exit_reason,
                         )
+                        alert_position_closed(
+                            ticker, broker_sym, exit_price,
+                            trade.get("pnl_total", 0), trade.get("pnl_r", 0),
+                            exit_reason, self.environment,
+                        )
+                else:
+                    logger.error(
+                        "%s: exit order failed -- reason=%s",
+                        ticker, result.get("reason") or result.get("comment") or result.get("retcode"),
+                    )
+                    alert_order_rejected(
+                        ticker, broker_sym,
+                        f"exit failed ({exit_reason}): {result.get('reason') or result.get('comment') or result.get('retcode')}",
+                        self.environment,
+                        is_exit=True,
+                    )
+                    self.run_logger.log_error(ticker, f"exit_failed: {result}")
 
             except Exception as exc:
                 logger.error("%s: exit error -- %s", ticker, exc, exc_info=True)
                 alert_error(ticker, "exit: %s" % exc)
+                self.run_logger.log_error(ticker, f"exit error: {exc}")
+
+        self.state_mgr.clear_pending_stage9_exits()
 
     # -------------------------------------------------------------------------
     # IG Execution Helpers
     # -------------------------------------------------------------------------
 
     def _fetch_data_ig(self, lookback: int) -> Dict[str, pd.DataFrame]:
+        """
+        Primary data path: TwelveData local parquet cache (built by
+        tools/build_td_cache.py) -- exact backtest data source parity.
+        Cache misses fall back to a live TwelveData call per ticker.
+
+        If TWELVEDATA_API_KEY is unset entirely, falls back to yfinance
+        (ig_fetcher.py) so the system still runs, but this deviates from
+        backtest data parity and should only be a temporary state.
+        """
+        if os.environ.get("TWELVEDATA_API_KEY", "").strip():
+            from prod.data.twelvedata_fetcher import fetch_universe_from_cache
+            return fetch_universe_from_cache(list(self.epic_map.keys()), lookback)
+
+        logger.warning("TWELVEDATA_API_KEY not set -- falling back to yfinance (backtest parity NOT guaranteed).")
         from prod.data.ig_fetcher import fetch_universe_ig
         return fetch_universe_ig(self.epic_map, lookback)
 
@@ -405,9 +540,11 @@ class APEXOrchestrator:
         )
         self.run_logger.log_order_sent(ticker, {
             "retcode": result.get("reason"),
+            "reason": result.get("reason"),
             "success": result.get("success"),
             "volume": result.get("volume"),
             "price": result.get("price"),
+            "sl": stop_price,
         })
         return result, entry_open, stop_price, shares
 
@@ -434,12 +571,26 @@ class APEXOrchestrator:
         )
 
     # -------------------------------------------------------------------------
-    # MT5 Execution Helpers (legacy -- logic unchanged)
+    # MT5 Execution Helpers
     # -------------------------------------------------------------------------
 
     def _fetch_data_mt5(self, tf: str, lookback: int) -> Dict[str, pd.DataFrame]:
-        from prod.data.mt5_fetcher import fetch_universe
-        return fetch_universe(self.symbol_map, tf, lookback)
+        """
+        Signal data for MT5 mode now comes from the SAME TwelveData cache as
+        IG mode -- exact backtest data source parity regardless of broker.
+        MT5 itself is used ONLY for execution (live tick price at order time,
+        SL attached to the order) -- never for signal/indicator calculation.
+        This replaces the old mt5_fetcher.fetch_universe() live-bar pull,
+        which was a silent backtest-parity deviation (different price series
+        than TwelveData/the validated backtest).
+        """
+        if os.environ.get("TWELVEDATA_API_KEY", "").strip():
+            from prod.data.twelvedata_fetcher import fetch_universe_from_cache
+            return fetch_universe_from_cache(list(self.symbol_map.keys()), lookback)
+
+        logger.warning("TWELVEDATA_API_KEY not set -- falling back to yfinance (backtest parity NOT guaranteed).")
+        from prod.data.ig_fetcher import fetch_universe_ig
+        return fetch_universe_ig(self.symbol_map, lookback)
 
     def _execute_entry_mt5(
         self,
@@ -448,8 +599,8 @@ class APEXOrchestrator:
         ticker: str,
         equity: float,
         gate_result: Dict[str, Any],
-    ) -> Tuple[Dict[str, Any], float, float, int]:
-        from prod.execution.order_builder import build_entry_request
+    ) -> Tuple[Dict[str, Any], float, float, float]:
+        from prod.execution.order_builder import build_entry_request, resolve_mt5_volume
         from prod.execution.order_executor import send_order
         import MetaTrader5 as mt5
 
@@ -472,18 +623,42 @@ class APEXOrchestrator:
             signal, equity, self.prod_cfg, self.risk_cfg,
             gate_risk_mult=gate_result["risk_mult"],
         )
-        shares = sizing["shares"]
-        if shares <= 0:
-            return {"success": False, "retcode": 0, "deal_id": 0}, entry_open, stop_price, 0
+        target_shares = sizing["shares"]
+        if target_shares <= 0:
+            return {"success": False, "reason": "zero_size", "retcode": 0, "deal_id": 0}, entry_open, stop_price, 0
+
+        # Convert broker-agnostic "shares" into a valid MT5 lot size for
+        # THIS symbol's actual contract_size/volume_step/volume_min -- see
+        # resolve_mt5_volume() docstring for why this matters for 1% risk
+        # accuracy.
+        vol = resolve_mt5_volume(
+            mt5_sym, target_shares,
+            sizing["stop_distance"], sizing["risk_dollars"],
+        )
+        if not vol["ok"]:
+            logger.info("%s: MT5 volume resolution failed (%s) -- skip.", ticker, vol["reason"])
+            return {"success": False, "reason": f"mt5_volume_{vol['reason']}", "retcode": 0, "deal_id": 0}, entry_open, stop_price, 0
 
         req = build_entry_request(
-            mt5_sym, shares, stop_price,
+            mt5_sym, vol["volume"], stop_price,
             self.magic, self.symbol_map_cfg,
         )
         result = send_order(req, self.environment)
-        self.run_logger.log_order_sent(ticker, result)
+        self.run_logger.log_order_sent(ticker, {
+            **result,
+            "sl": stop_price,
+            "mt5_volume": vol["volume"],
+            "actual_shares": vol["actual_shares"],
+            "target_risk_dollars": vol["target_risk_dollars"],
+            "actual_risk_dollars": vol["actual_risk_dollars"],
+            "deviation_pct": vol["deviation_pct"],
+        })
         result["deal_id"] = result.get("order", 0)
-        return result, entry_open, stop_price, shares
+        result["mt5_volume"] = vol["volume"]
+        # actual_shares (underlying share-equivalent exposure) is what
+        # position_manager needs for correct $ P&L math -- NOT the raw lot
+        # count, which is only meaningful to MT5's order_send/close.
+        return result, entry_open, stop_price, vol["actual_shares"]
 
     def _execute_exit_mt5(
         self,

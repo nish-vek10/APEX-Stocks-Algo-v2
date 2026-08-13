@@ -34,10 +34,27 @@ class RunLogger:
                                 "signal_date": str(signal.get("signal_date"))})
 
     def log_order_sent(self, ticker: str, result: Dict[str, Any]) -> None:
-        self._write("order_sent", {"ticker": ticker, "retcode": result.get("retcode"),
-                                    "success": result.get("success"),
-                                    "volume": result.get("volume"),
-                                    "price": result.get("price")})
+        # Full breadth of sizing/risk fields is written when present (MT5
+        # path attaches sl/mt5_volume/actual_shares/target+actual risk
+        # dollars/deviation_pct -- see orchestrator._execute_entry_mt5) so
+        # managers/debugging can see exactly what was sent and why, without
+        # cross-referencing multiple log lines. `reason`/`comment` captures
+        # broker rejection detail for failed orders.
+        self._write("order_sent", {
+            "ticker": ticker,
+            "retcode": result.get("retcode"),
+            "success": result.get("success"),
+            "volume": result.get("volume"),
+            "price": result.get("price"),
+            "sl": result.get("sl"),
+            "reason": result.get("reason"),
+            "comment": result.get("comment"),
+            "mt5_volume": result.get("mt5_volume"),
+            "actual_shares": result.get("actual_shares"),
+            "target_risk_dollars": result.get("target_risk_dollars"),
+            "actual_risk_dollars": result.get("actual_risk_dollars"),
+            "deviation_pct": result.get("deviation_pct"),
+        })
 
     def log_position_open(self, ticker: str, entry: float, stop: float, shares: float) -> None:
         self._write("position_open", {"ticker": ticker, "entry": entry,
