@@ -286,14 +286,39 @@ def main() -> None:
                       f"ok={ok_n} partial={partial_n} err={err_n}")
 
         except Exception as e:
+            # A single bad/unrecognized symbol (e.g. a SPAC unit ticker like
+            # "AAC-U" that TwelveData doesn't carry) fails the ENTIRE batch
+            # request -- previously this meant every OTHER ticker sharing
+            # that batch was wrongly marked as errored too, even though
+            # they're perfectly fetchable. Fall back to one-symbol-at-a-time
+            # requests for this batch so only the genuinely bad ticker(s)
+            # end up in _errors.jsonl; good ones still get cached this run.
+            print(f"[WARN] batch {i}/{len(batches)} failed: {e} -- retrying symbols individually")
             for sym in batch:
-                append_jsonl(ERRORS_JSONL, {
-                    "asof_utc": utc_now_iso(), "ticker": sym,
-                    "batch_i": i, "error": str(e),
-                })
-                processed_n += 1
-                err_n += 1
-            print(f"[WARN] batch {i}/{len(batches)} failed: {e}")
+                last_req_time = sleep_for_rate_limit(last_req_time, batch_credits=1)
+                try:
+                    ts = td.time_series(
+                        symbol=sym, interval=INTERVAL,
+                        outputsize=outputsize, timezone=TZ, order="asc",
+                    )
+                    df_sym = ts.as_pandas()
+                    last_req_time = time.time()
+                    if df_sym is None or len(df_sym) == 0:
+                        raise RuntimeError("Empty response")
+                    sub = df_sym.reset_index(drop=False)
+                    status = _write_ticker(sym, sub)
+                    processed_n += 1
+                    if status in ("ok", "ok_short_history"):
+                        ok_n += 1
+                    else:
+                        partial_n += 1
+                except Exception as e_sym:
+                    append_jsonl(ERRORS_JSONL, {
+                        "asof_utc": utc_now_iso(), "ticker": sym,
+                        "batch_i": i, "error": str(e_sym),
+                    })
+                    processed_n += 1
+                    err_n += 1
 
     print(f"\n[OK] Cache build complete. ok={ok_n} partial={partial_n} err={err_n}")
     print("Re-run anytime -- tickers already fresh are skipped (zero credits spent).")
