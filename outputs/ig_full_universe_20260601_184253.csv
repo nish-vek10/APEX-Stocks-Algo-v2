@@ -1,0 +1,162 @@
+ticker_in_epic,epic,instrument_name,currency,market_status,search_term
+AALUS,UA.D.AALUS.CASH.IP,American Airlines Group Inc (24 Hours),N/A,TRADEABLE,Airlines
+AAPL,UA.D.AAPL.CASH.IP,Apple Inc (24 Hours),N/A,TRADEABLE,A Inc
+ABNBUS,UA.D.ABNBUS.CASH.IP,Airbnb Inc (24 Hours),N/A,TRADEABLE,A Inc
+ACGL,UA.D.ACGL.CASH.IP,Arch Capital Group Ltd (24 Hours),N/A,TRADEABLE,C Group
+ADBE,UA.D.ADBE.CASH.IP,Adobe Systems Inc (24 Hours),N/A,TRADEABLE,Systems
+ADI,UA.D.ADI.CASH.IP,Analog Devices Inc (24 Hours),N/A,TRADEABLE,D Inc
+AFRMUS,UA.D.AFRMUS.CASH.IP,Affirm Holdings Inc (24 Hours),N/A,TRADEABLE,H Inc
+AGCUS,UA.D.AGCUS.CASH.IP,Grab Holdings (24 Hours),N/A,TRADEABLE,A Holdings
+AKAM,UA.D.AKAM.CASH.IP,Akamai Technologies Inc (24 Hours),N/A,TRADEABLE,A Technologies
+ALABUS,UA.D.ALABUS.CASH.IP,Astera Labs Inc (24 Hours),N/A,TRADEABLE,L Inc
+AMGN,UA.D.AMGN.CASH.IP,Amgen Inc (24 Hours),N/A,TRADEABLE,A Inc
+APLDUS,UA.D.APLDUS.CASH.IP,Applied Digital Corp (24 Hours),N/A,TRADEABLE,D Corp
+APPSUS,UA.D.APPSUS.CASH.IP,Digital Turbine Inc (24 Hours),N/A,TRADEABLE,D Inc
+ARMUS,UA.D.ARMUS.CASH.IP,ARM Holdings PLC ADR (24 Hours),N/A,TRADEABLE,A Holdings
+ASSTUS,UA.D.ASSTUS.CASH.IP,Strive Inc (24 Hours),N/A,TRADEABLE,S Inc
+AVGO,UA.D.AVGO.CASH.IP,Broadcom Inc (24 Hours),N/A,TRADEABLE,B Inc
+BIDU,UA.D.BIDU.CASH.IP,Baidu Inc ADR (24 Hours),N/A,TRADEABLE,B Inc
+BITFUS,UA.D.BITFUS.CASH.IP,Keel Infrastructure Corp (24 Hours),N/A,TRADEABLE,I Corp
+BULLUS,UA.D.BULLUS.CASH.IP,Webull Corp (24 Hours),N/A,TRADEABLE,W Corp
+BYNDUS,UA.D.BYNDUS.CASH.IP,Beyond Meat Inc (24 Hours),N/A,TRADEABLE,M Inc
+CBRSUS,UA.D.CBRSUS.CASH.IP,Cerebras Systems Inc (24 Hours),N/A,TRADEABLE,Systems
+CDN,UA.D.CDN.CASH.IP,Cadence Design Systems Inc (24 Hours),N/A,TRADEABLE,Systems
+CDWUS,UA.D.CDWUS.CASH.IP,CDW Corp/DE (24 Hours),N/A,TRADEABLE,A Corp
+CELHUS,UA.D.CELHUS.CASH.IP,Celsius Holdings Inc (24 Hours),N/A,TRADEABLE,C Holdings
+CHKUS,UA.D.CHKUS.CASH.IP,Expand Energy Corporation (24 Hours),N/A,TRADEABLE,E Corp
+CHRW,UA.D.CHRW.CASH.IP,CH Robinson Worldwide Inc (24 Hours),N/A,TRADEABLE,W Inc
+CHTRUS,UA.D.CHTRUS.CASH.IP,Charter Communications Inc (24 Hours),N/A,TRADEABLE,Communications
+CINF,UA.D.CINF.CASH.IP,Cincinnati Financial Corp (24 Hours),N/A,TRADEABLE,F Corp
+CME,UA.D.CME.CASH.IP,CME Group Inc - US (24 Hours),N/A,TRADEABLE,U Inc
+COST,UA.D.COST.CASH.IP,Costco Wholesale Corp (24 Hours),N/A,TRADEABLE,W Corp
+CPRT,UA.D.CPRT.CASH.IP,Copart Inc (24 Hours),N/A,TRADEABLE,C Inc
+CRMLUS,UA.D.CRMLUS.CASH.IP,Critical Metals Corp (24 Hours),N/A,TRADEABLE,M Corp
+CRWDUS,UA.D.CRWDUS.CASH.IP,CrowdStrike Holdings Inc (24 Hours),N/A,TRADEABLE,C Holdings
+CRWVUS,UA.D.CRWVUS.CASH.IP,Coreweave Inc (24 Hours),N/A,TRADEABLE,C Inc
+CSCO,UA.D.CSCO.CASH.IP,Cisco Systems Inc (24 Hours),N/A,TRADEABLE,Systems
+CSGPUS,UA.D.CSGPUS.CASH.IP,CoStar Group Inc (24 Hours),N/A,TRADEABLE,C Group
+CTAS,UA.D.CTAS.CASH.IP,Cintas Corp (24 Hours),N/A,TRADEABLE,C Corp
+CTSH,UA.D.CTSH.CASH.IP,Cognizant Technology Solutions Corp (24 Hours),N/A,TRADEABLE,T Corp
+DDOGUS,UB.D.DDOGUS.CASH.IP,Datadog Inc (24 Hours),N/A,TRADEABLE,D Inc
+DLTR,UB.D.DLTR.CASH.IP,Dollar Tree Inc (24 Hours),N/A,TRADEABLE,D Inc
+DNJRUS,UB.D.DNJRUS.CASH.IP,Bit Digital Inc (24 Hours),N/A,TRADEABLE,D Inc
+DOCUUS,UB.D.DOCUUS.CASH.IP,DocuSign Inc (24 Hours),N/A,TRADEABLE,D Inc
+DUOLUS,UB.D.DUOLUS.CASH.IP,Duolingo Inc (24 Hours),N/A,TRADEABLE,D Inc
+DWACUS,UB.D.DWACUS.CASH.IP,Trump Media & Technology Group Corp (24 Hours),N/A,TRADEABLE,G Corp
+DXCM,UB.D.DXCM.CASH.IP,DexCom Inc (24 Hours),N/A,TRADEABLE,D Inc
+EBAY,UB.D.EBAY.CASH.IP,eBay Inc (24 Hours),N/A,TRADEABLE,E Inc
+ENPHUS,UB.D.ENPHUS.CASH.IP,Enphase Energy Inc (24 Hours),N/A,TRADEABLE,E Inc
+ENVXUS,UB.D.ENVXUS.CASH.IP,Enovix Corporation (24 Hours),N/A,TRADEABLE,E Corp
+ERTS,UB.D.ERTS.CASH.IP,Electronic Arts Inc (24 Hours),N/A,TRADEABLE,E Inc
+ETORUS,UB.D.ETORUS.CASH.IP,Etoro Group Ltd (24 Hours),N/A,TRADEABLE,E Group
+EXPE,UB.D.EXPE.CASH.IP,Expedia Group Inc (24 Hours),N/A,TRADEABLE,E Group
+FB,UB.D.FB.CASH.IP,Meta Platforms Inc (24 Hours),N/A,TRADEABLE,A Inc
+FCEL,UB.D.FCEL.CASH.IP,FuelCell Energy Inc (24 Hours),N/A,TRADEABLE,Energy
+FFIV,UB.D.FFIV.CASH.IP,F5 Inc (24 Hours),N/A,TRADEABLE,A Inc
+FHLUS,UB.D.FHLUS.CASH.IP,Futu Holdings Limited (24 Hours),N/A,TRADEABLE,F Holdings
+FIGRUS,UB.D.FIGRUS.CASH.IP,Figure Technology Solutions Inc (24 Hours),N/A,TRADEABLE,Solutions
+FISV,UB.D.FISV.CASH.IP,Fiserv Inc (24 Hours),N/A,TRADEABLE,F Inc
+FITB,UB.D.FITB.CASH.IP,Fifth Third Bancorp (24 Hours),N/A,TRADEABLE,Bancorp
+FOXCAUS,UB.D.FOXCAUS.CASH.IP,Fox Corporation - A (24 Hours),N/A,TRADEABLE,F Corp
+FOXCUS,UB.D.FOXCUS.CASH.IP,Fox Corporation - B (24 Hours),N/A,TRADEABLE,B Corp
+FSLR,UB.D.FSLR.CASH.IP,First Solar Inc (24 Hours),N/A,TRADEABLE,F Inc
+FTNT,UB.D.FTNT.CASH.IP,Fortinet Inc (24 Hours),N/A,TRADEABLE,F Inc
+GEHCVUS,UB.D.GEHCVUS.CASH.IP,GE HealthCare Technologies Inc (24 Hours),N/A,TRADEABLE,G Technologies
+GEMIUS,UB.D.GEMIUS.CASH.IP,Gemini Inc (24 Hours),N/A,TRADEABLE,G Inc
+GLXYUS,UB.D.GLXYUS.CASH.IP,Galaxy Digital Inc - US (24 Hours),N/A,TRADEABLE,U Inc
+GPROUS,UB.D.GPROUS.CASH.IP,GoPro Inc (24 Hours),N/A,TRADEABLE,G Inc
+GRMN,UB.D.GRMN.CASH.IP,Garmin Ltd (24 Hours),N/A,TRADEABLE,A Ltd
+HAS,UB.D.HAS.CASH.IP,Hasbro Inc (24 Hours),N/A,TRADEABLE,H Inc
+HBAN,UB.D.HBAN.CASH.IP,Huntington Bancshares Inc (24 Hours),N/A,TRADEABLE,Bancshares
+HOLX,UB.D.HOLX.CASH.IP,Hologic Inc (24 Hours),N/A,OFFLINE,H Inc
+HSGXUS,UB.D.HSGXUS.CASH.IP,Ocugen Inc (24 Hours),N/A,TRADEABLE,O Inc
+HVBTUS,UB.D.HVBTUS.CASH.IP,HIVE Digital Technologies Ltd - US (24 Hours),N/A,TRADEABLE,B Technologies
+INCY,UB.D.INCY.CASH.IP,Incyte Corp Ltd (24 Hours),N/A,TRADEABLE,L Inc
+INTC,UB.D.INTC.CASH.IP,Intel Corp (24 Hours),N/A,TRADEABLE,A Corp
+INTU,UB.D.INTU.CASH.IP,Intuit Inc (24 Hours),N/A,TRADEABLE,I Inc
+IXHLUS,UB.D.IXHLUS.CASH.IP,Incannex Healthcare Ltd (24 Hours),N/A,TRADEABLE,I Ltd
+JBHT,UB.D.JBHT.CASH.IP,JB Hunt Transport Services Inc (24 Hours),N/A,TRADEABLE,J Inc
+JDUS,UB.D.JDUS.CASH.IP,JD.com Inc (24 Hours),N/A,TRADEABLE,J Inc
+JKHY,UB.D.JKHY.CASH.IP,Jack Henry & Associates Inc (24 Hours),N/A,TRADEABLE,J Inc
+KFT,UB.D.KFT.CASH.IP,Mondelez International Inc (24 Hours),N/A,TRADEABLE,International
+KLAC,UB.D.KLAC.CASH.IP,KLA-Tencor Corp (24 Hours),N/A,TRADEABLE,K Corp
+LKQXUS,UB.D.LKQXUS.CASH.IP,LKQ Corp (24 Hours),N/A,TRADEABLE,A Corp
+LRCX,UB.D.LRCX.CASH.IP,Lam Research Corp (24 Hours),N/A,TRADEABLE,L Corp
+LYFTUS,UB.D.LYFTUS.CASH.IP,Lyft Inc (24 Hours),N/A,TRADEABLE,L Inc
+MARAUS,UC.D.MARAUS.CASH.IP,MARA Holdings Inc (24 Hours),N/A,TRADEABLE,E Holdings
+MARUS,UC.D.MARUS.CASH.IP,Marriott International Inc (24 Hours),N/A,TRADEABLE,International
+MNST,UC.D.MNST.CASH.IP,Monster Beverage Corp (24 Hours),N/A,TRADEABLE,B Corp
+MPWR,UC.D.MPWR.CASH.IP,Monolithic Power Systems Inc (24 Hours),N/A,TRADEABLE,Systems
+MRNAUS,UC.D.MRNAUS.CASH.IP,Moderna Inc (24 Hours),N/A,TRADEABLE,M Inc
+MRVL,UC.D.MRVL.CASH.IP,Marvell Technology Group Ltd (24 Hours),N/A,TRADEABLE,T Group
+MSFT,UC.D.MSFT.CASH.IP,Microsoft Corp (24 Hours),N/A,TRADEABLE,M Corp
+MTCHUS,UC.D.MTCHUS.CASH.IP,Match Group Inc (24 Hours),N/A,TRADEABLE,M Group
+MTSLUS,UC.D.MTSLUS.CASH.IP,Sharplink Inc (24 Hours),N/A,TRADEABLE,S Inc
+NCLHUS,UC.D.NCLHUS.CASH.IP,Norwegian Cruise Line Holdings Ltd (24 Hours),N/A,TRADEABLE,N Holdings
+NDAQ,UC.D.NDAQ.CASH.IP,NASDAQ OMX Group Inc (24 Hours),N/A,TRADEABLE,N Inc
+NDSN,UC.D.NDSN.CASH.IP,Nordson Corp (24 Hours),N/A,TRADEABLE,N Corp
+NFLX,UC.D.NFLX.CASH.IP,Netflix Inc (24 Hours),N/A,TRADEABLE,N Inc
+NNEUS,UC.D.NNEUS.CASH.IP,NANO Nuclear Energy Inc (24 Hours),N/A,TRADEABLE,N Inc
+NTAP,UC.D.NTAP.CASH.IP,NetApp Inc (24 Hours),N/A,TRADEABLE,N Inc
+NTRS,UC.D.NTRS.CASH.IP,Northern Trust Corp (24 Hours),N/A,TRADEABLE,N Corp
+NVAX,UC.D.NVAX.CASH.IP,Novavax Inc (24 Hours),N/A,TRADEABLE,N Inc
+NVDA,UC.D.NVDA.CASH.IP,NVIDIA Corp (24 Hours),N/A,TRADEABLE,N Corp
+NVTSUS,UC.D.NVTSUS.CASH.IP,Navitas Semiconductor Corporation (24 Hours),N/A,TRADEABLE,N Corp
+NWS,UC.D.NWS.CASH.IP,News Corp - B (24 Hours),N/A,TRADEABLE,A Corp
+NWSA,UC.D.NWSA.CASH.IP,News Corp - A (24 Hours),N/A,TRADEABLE,A Corp
+NXPI,UC.D.NXPI.CASH.IP,NXP Semiconductor NV (24 Hours),N/A,TRADEABLE,Semiconductor
+OKTAUS,UC.D.OKTAUS.CASH.IP,Okta Inc (24 Hours),N/A,TRADEABLE,O Inc
+ONNN,UC.D.ONNN.CASH.IP,ON Semiconductor Corp (24 Hours),N/A,TRADEABLE,S Corp
+PAAS,UC.D.PAAS.CASH.IP,Pan American Silver Corp (24 Hours),N/A,TRADEABLE,P Corp
+PANWUS,SE.D.PANWUS.CASH.IP,Palo Alto Networks Inc (24 Hours),N/A,TRADEABLE,Networks
+PAYPUS,UC.D.PAYPUS.CASH.IP,PayPay Corp ADR (24 Hours),N/A,TRADEABLE,P Corp
+PAYX,UC.D.PAYX.CASH.IP,Paychex Inc (24 Hours),N/A,TRADEABLE,P Inc
+PCAR,UC.D.PCAR.CASH.IP,PACCAR Inc (24 Hours),N/A,TRADEABLE,P Inc
+PCLN,UC.D.PCLN.CASH.IP,Booking Holdings Inc (24 Hours),N/A,TRADEABLE,B Holdings
+PCSUS,SE.D.PCSUS.CASH.IP,T-Mobile US Inc (24 Hours),N/A,TRADEABLE,M Inc
+PDDUS,UC.D.PDDUS.CASH.IP,PDD Holdings Inc (24 Hours),N/A,TRADEABLE,I Holdings
+PGYUS,UC.D.PGYUS.CASH.IP,Pagaya Technologies Limited (24 Hours),N/A,TRADEABLE,L Technologies
+PLTRUS,SE.D.PLTRUS.CASH.IP,Palantir Technologies Inc (24 Hours),N/A,TRADEABLE,I Technologies
+PLUGUS,UC.D.PLUGUS.CASH.IP,Plug Power Inc (24 Hours),N/A,TRADEABLE,P Inc
+PMTC,UC.D.PMTC.CASH.IP,PTC Inc (24 Hours),N/A,TRADEABLE,A Inc
+PODDUS,UC.D.PODDUS.CASH.IP,Insulet Corp (24 Hours),N/A,TRADEABLE,I Corp
+POETUS,UC.D.POETUS.CASH.IP,POET Technologies Inc (24 Hours),N/A,TRADEABLE,I Technologies
+PONYUS,UC.D.PONYUS.CASH.IP,Pony AI Inc (24 Hours),N/A,TRADEABLE,P Inc
+POOL,UC.D.POOL.CASH.IP,Pool Corp (24 Hours),N/A,TRADEABLE,A Corp
+PYPLVUS,UC.D.PYPLVUS.CASH.IP,PayPal Holdings Inc (24 Hours),N/A,TRADEABLE,I Holdings
+QCOM,UC.D.QCOM.CASH.IP,QUALCOMM Inc (24 Hours),N/A,TRADEABLE,Q Inc
+QQQ,UC.D.QQQ.CASH.IP,Invesco QQQ Trust Series 1 (24 Hours),N/A,TRADEABLE,Trust
+QUBTUS,UC.D.QUBTUS.CASH.IP,Quantum Computing Inc (24 Hours),N/A,TRADEABLE,Q Inc
+RCATUS,UC.D.RCATUS.CASH.IP,Red Cat Holdings Inc (24 Hours),N/A,TRADEABLE,R Inc
+ROKUUS,UC.D.ROKUUS.CASH.IP,Roku Inc (24 Hours),N/A,TRADEABLE,R Inc
+RUNUS,UC.D.RUNUS.CASH.IP,Sunrun Inc (24 Hours),N/A,TRADEABLE,S Inc
+SBUX,UD.D.SBUX.CASH.IP,Starbucks Corp (24 Hours),N/A,TRADEABLE,S Corp
+SEDGUS,UD.D.SEDGUS.CASH.IP,SolarEdge Technologies Inc (24 Hours),N/A,TRADEABLE,I Technologies
+SVUS,UD.D.SVUS.CASH.IP,NuScale Power Corporation (24 Hours),N/A,TRADEABLE,N Corp
+SWKS,UD.D.SWKS.CASH.IP,Skyworks Solutions Inc (24 Hours),N/A,TRADEABLE,Solutions
+SYMC,UD.D.SYMC.CASH.IP,Gen Digital Inc (24 Hours),N/A,TRADEABLE,D Inc
+TASR,UD.D.TASR.CASH.IP,Axon Enterprise Inc (24 Hours),N/A,TRADEABLE,E Inc
+TEAMUS,UD.D.TEAMUS.CASH.IP,Atlassian Corp PLC (24 Hours),N/A,TRADEABLE,P Corp
+TECH,UD.D.TECH.CASH.IP,Techne Corp (24 Hours),N/A,TRADEABLE,T Corp
+TEMUS,UD.D.TEMUS.CASH.IP,Tempus AI Inc (24 Hours),N/A,TRADEABLE,T Inc
+TLRYUS,UD.D.TLRYUS.CASH.IP,Tilray Inc (24 Hours),N/A,TRADEABLE,T Inc
+TRMB,UD.D.TRMB.CASH.IP,Trimble Navigation Ltd (24 Hours),N/A,TRADEABLE,N Ltd
+TROW,UD.D.TROW.CASH.IP,T Rowe Price Group Inc (24 Hours),N/A,TRADEABLE,T Group
+TSLA,UD.D.TSLA.CASH.IP,Tesla Motors Inc (24 Hours),N/A,TRADEABLE,Motors
+TTDUS,UD.D.TTDUS.CASH.IP,Trade Desk Inc/The (24 Hours),N/A,TRADEABLE,D Inc
+TTWO,UD.D.TTWO.CASH.IP,Take-Two Interactive Software Inc (24 Hours),N/A,TRADEABLE,Software
+ULTAUS,UD.D.ULTAUS.CASH.IP,Ulta Beauty Inc (24 Hours),N/A,TRADEABLE,U Inc
+UPSTUS,UD.D.UPSTUS.CASH.IP,Upstart Holdings Inc (24 Hours),N/A,TRADEABLE,U Holdings
+USARUS,UD.D.USARUS.CASH.IP,USA Rare Earth Inc (24 Hours),N/A,TRADEABLE,U Inc
+VACQUS,UD.D.VACQUS.CASH.IP,Rocket Lab Corporation (24 Hours),N/A,TRADEABLE,L Corp
+VRSN,UD.D.VRSN.CASH.IP,VeriSign Inc (24 Hours),N/A,TRADEABLE,V Inc
+VTRSUS,UD.D.VTRSUS.CASH.IP,Viatris Inc (24 Hours),N/A,TRADEABLE,V Inc
+WDC,UD.D.WDC.CASH.IP,Western Digital Corp (24 Hours),N/A,TRADEABLE,D Corp
+WISAUS,UD.D.WISAUS.CASH.IP,Datavault AI Inc (24 Hours),N/A,TRADEABLE,D Inc
+WRDUS,UD.D.WRDUS.CASH.IP,WeRide Inc (24 Hours),N/A,TRADEABLE,W Inc
+WULFUS,UD.D.WULFUS.CASH.IP,Terawulf Inc (24 Hours),N/A,TRADEABLE,T Inc
+WYNN,UD.D.WYNN.CASH.IP,Wynn Resorts Ltd (24 Hours),N/A,TRADEABLE,R Ltd
+YNDX,UD.D.YNDX.CASH.IP,Nebius Group NV (24 Hours),N/A,TRADEABLE,N Group
+ZBRA,UD.D.ZBRA.CASH.IP,Zebra Technologies Corp (24 Hours),N/A,TRADEABLE,T Corp
+ZMUS,UD.D.ZMUS.CASH.IP,Zoom Video Communications Inc (24 Hours),N/A,TRADEABLE,Z Inc
+ZSUS,UD.D.ZSUS.CASH.IP,Zscaler Inc (24 Hours),N/A,TRADEABLE,Z Inc

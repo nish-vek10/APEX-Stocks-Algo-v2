@@ -1,0 +1,622 @@
+# config/production.yaml
+# ─── APEX Production Configuration ─────────────────────────────────────────────
+
+environment: "paper"          # "paper" | "live"  — MUST be changed to "live" for real execution
+
+# ─── Broker Selection ──────────────────────────────────────────────────────────
+broker: "ig"                  # "ig" | "mt5"  — selects execution backend
+
+# ─── IG Group API Credentials ─────────────────────────────────────────────────
+# Set via .env file (see .env.example) — never hardcode here
+ig:
+  identifier: ""              # Set via IG_IDENTIFIER env var
+  password: ""                # Set via IG_PASSWORD env var
+  api_key: ""                 # Set via IG_API_KEY env var
+  acc_number: ""              # Set via IG_ACCOUNT_ID env var
+  acc_type: "DEMO"            # "DEMO" | "LIVE" — switch to "LIVE" for real execution
+
+# ─── MT5 Credentials (legacy — kept for reference, unused in ig mode) ──────────
+mt5:
+  server: ""                  # Set via MT5_SERVER env var or here
+  login: 0                    # Set via MT5_LOGIN env var
+  password: ""                # Set via MT5_PASSWORD env var
+  timeout_ms: 10000
+  magic_number: 20240001
+
+# ─── Universe ──────────────────────────────────────────────────────────────────
+universe:
+  # Universe: 20 US tech/growth stocks confirmed available on IG demo CFD account
+  # Original S&P 500 diversified universe replaced -- JPM/JNJ/V/UNH/XOM/WMT/PG/MA/HD/CVX/MRK/ABBV/PEP
+  # not available on this IG account as 24h cash CFDs.
+  tickers:
+    # ── IG-mapped (signal + execution) ──────────────────────────────
+    - AAPL
+    - ABNB
+    - ADBE
+    - ADI
+    - AFRM
+    - AKAM
+    - ALAB
+    - AMAT
+    - AMD
+    - AMGN
+    - AMZN
+    - ARM
+    - AVGO
+    - AXON
+    - BKNG
+    - CDNS
+    - CDW
+    - CELH
+    - CHRW
+    - CINF
+    - CME
+    - COIN
+    - COST
+    - CPRT
+    - CRWD
+    - CSCO
+    - CSGP
+    - CTAS
+    - CTSH
+    - DDOG
+    - DLTR
+    - DOCU
+    - DUOL
+    - DXCM
+    - EA
+    - EBAY
+    - ENPH
+    - EXPE
+    - FFIV
+    - FISV
+    - FITB
+    - FOX
+    - FOXA
+    - FSLR
+    - FTNT
+    - GEHC
+    - GEN
+    - GOOGL
+    - GRMN
+    - HAS
+    - HBAN
+    - HOLX
+    - INCY
+    - INTC
+    - INTU
+    - JBHT
+    - JKHY
+    - KLAC
+    - LRCX
+    - LYFT
+    - MAR
+    - MDLZ
+    - META
+    - MNST
+    - MPWR
+    - MRNA
+    - MRVL
+    - MSFT
+    - MTCH
+    - MU
+    - NDAQ
+    - NDSN
+    - NFLX
+    - NTAP
+    - NTRS
+    - NVDA
+    - NXPI
+    - OKTA
+    - "ON"
+    - PANW
+    - PAYX
+    - PCAR
+    - PLTR
+    - PODD
+    - POOL
+    - PYPL
+    - QCOM
+    - ROKU
+    - SBUX
+    - SWKS
+    - TEAM
+    - TMUS
+    - TRMB
+    - TROW
+    - TSLA
+    - TTD
+    - TTWO
+    - ULTA
+    - UPST
+    - VRSN
+    - VTRS
+    - WDC
+    - WYNN
+    - ZBRA
+    - ZM
+    - ZS
+    # ── Scan-only (signal only — no IG epic mapped yet) ────────────
+    - A
+    - ABBV
+    - ABT
+    - ACGL
+    - ACN
+    - ADM
+    - ADP
+    - ADSK
+    - AEE
+    - AEP
+    - AES
+    - AFL
+    - AIG
+    - AIZ
+    - AJG
+    - ALB
+    - ALGN
+    - ALL
+    - ALLE
+    - ALNY
+    - AMCR
+    - AME
+    - AMP
+    - AMT
+    - ANET
+    - AON
+    - AOS
+    - APA
+    - APD
+    - APH
+    - APO
+    - APP
+    - APTV
+    - ARE
+    - ARES
+    - ASML
+    - ATO
+    - AVB
+    - AVY
+    - AWK
+    - AXP
+    - AZO
+    - BA
+    - BAC
+    - BALL
+    - BAX
+    - BBY
+    - BDX
+    - BEN
+    - BF-B
+    - BG
+    - BIIB
+    - BKR
+    - BLDR
+    - BLK
+    - BMY
+    - BNY
+    - BR
+    - BRO
+    - BSX
+    - BX
+    - BXP
+    - C
+    - CAG
+    - CAH
+    - CARR
+    - CASY
+    - CAT
+    - CB
+    - CBOE
+    - CBRE
+    - CCEP
+    - CCI
+    - CCL
+    - CEG
+    - CF
+    - CFG
+    - CHD
+    - CHTR
+    - CI
+    - CIEN
+    - CL
+    - CLX
+    - CMCSA
+    - CMG
+    - CMI
+    - CMS
+    - CNC
+    - CNP
+    - COF
+    - COHR
+    - COO
+    - COP
+    - COR
+    - CPAY
+    - CPB
+    - CPT
+    - CRH
+    - CRL
+    - CRM
+    - CSX
+    - CTVA
+    - CVNA
+    - CVS
+    - CVX
+    - D
+    - DAL
+    - DASH
+    - DD
+    - DE
+    - DECK
+    - DELL
+    - DG
+    - DGX
+    - DHI
+    - DHR
+    - DIS
+    - DLR
+    - DOC
+    - DOV
+    - DOW
+    - DPZ
+    - DRI
+    - DTE
+    - DUK
+    - DVA
+    - DVN
+    - ECL
+    - ED
+    - EFX
+    - EG
+    - EIX
+    - EL
+    - ELV
+    - EME
+    - EMR
+    - EOG
+    - EPAM
+    - EQIX
+    - EQR
+    - EQT
+    - ERIE
+    - ES
+    - ESS
+    - ETN
+    - ETR
+    - EVRG
+    - EW
+    - EXC
+    - EXE
+    - EXPD
+    - EXR
+    - F
+    - FANG
+    - FAST
+    - FCX
+    - FDS
+    - FDX
+    - FE
+    - FER
+    - FICO
+    - FIS
+    - FIX
+    - FRT
+    - FTV
+    - GD
+    - GDDY
+    - GE
+    - GEV
+    - GILD
+    - GIS
+    - GL
+    - GLW
+    - GM
+    - GNRC
+    - GPC
+    - GPN
+    - GS
+    - GWW
+    - HAL
+    - HCA
+    - HD
+    - HIG
+    - HII
+    - HLT
+    - HON
+    - HOOD
+    - HPE
+    - HPQ
+    - HRL
+    - HSIC
+    - HST
+    - HSY
+    - HUBB
+    - HUM
+    - HWM
+    - IBKR
+    - IBM
+    - ICE
+    - IDXX
+    - IEX
+    - IFF
+    - INSM
+    - INVH
+    - IP
+    - IQV
+    - IR
+    - IRM
+    - ISRG
+    - IT
+    - ITW
+    - IVZ
+    - J
+    - JBL
+    - JCI
+    - JNJ
+    - JPM
+    - KDP
+    - KEY
+    - KEYS
+    - KHC
+    - KIM
+    - KKR
+    - KMB
+    - KMI
+    - KO
+    - KR
+    - KVUE
+    - L
+    - LDOS
+    - LEN
+    - LH
+    - LHX
+    - LII
+    - LIN
+    - LITE
+    - LLY
+    - LMT
+    - LNT
+    - LOW
+    - LULU
+    - LUV
+    - LVS
+    - LYB
+    - LYV
+    - MA
+    - MAA
+    - MAS
+    - MCD
+    - MCHP
+    - MCK
+    - MCO
+    - MDT
+    - MELI
+    - MET
+    - MGM
+    - MKC
+    - MLM
+    - MMM
+    - MO
+    - MOS
+    - MPC
+    - MRK
+    - MRSH
+    - MS
+    - MSCI
+    - MSI
+    - MSTR
+    - MTB
+    - MTD
+    - NCLH
+    - NEE
+    - NEM
+    - NI
+    - NKE
+    - NOC
+    - NOW
+    - NRG
+    - NSC
+    - NUE
+    - NVR
+    - NWS
+    - NWSA
+    - O
+    - ODFL
+    - OKE
+    - OMC
+    - ORCL
+    - ORLY
+    - OTIS
+    - OXY
+    - PCG
+    - PDD
+    - PEG
+    - PEP
+    - PFE
+    - PFG
+    - PG
+    - PGR
+    - PH
+    - PHM
+    - PKG
+    - PLD
+    - PM
+    - PNC
+    - PNR
+    - PNW
+    - PPG
+    - PPL
+    - PRU
+    - PSA
+    - PSKY
+    - PSX
+    - PTC
+    - PWR
+    - Q
+    - RCL
+    - REG
+    - REGN
+    - RF
+    - RJF
+    - RL
+    - RMD
+    - ROK
+    - ROL
+    - ROP
+    - ROST
+    - RSG
+    - RTX
+    - RVTY
+    - SATS
+    - SBAC
+    - SCHW
+    - SHOP
+    - SHW
+    - SJM
+    - SLB
+    - SMCI
+    - SNA
+    - SNDK
+    - SNPS
+    - SO
+    - SOLV
+    - SPG
+    - SPGI
+    - SRE
+    - STE
+    - STLD
+    - STT
+    - STX
+    - STZ
+    - SW
+    - SWK
+    - SYF
+    - SYK
+    - SYY
+    - T
+    - TAP
+    - TDG
+    - TDY
+    - TECH
+    - TEL
+    - TER
+    - TFC
+    - TGT
+    - TJX
+    - TKO
+    - TMO
+    - TPL
+    - TPR
+    - TRGP
+    - TRI
+    - TRV
+    - TSCO
+    - TSN
+    - TT
+    - TXN
+    - TXT
+    - TYL
+    - UAL
+    - UBER
+    - UDR
+    - UHS
+    - UNH
+    - UNP
+    - UPS
+    - URI
+    - USB
+    - V
+    - VEEV
+    - VICI
+    - VLO
+    - VLTO
+    - VMC
+    - VRSK
+    - VRT
+    - VRTX
+    - VST
+    - VTR
+    - VZ
+    - WAB
+    - WAT
+    - WBD
+    - WDAY
+    - WEC
+    - WELL
+    - WFC
+    - WM
+    - WMB
+    - WMT
+    - WRB
+    - WSM
+    - WST
+    - WTW
+    - WY
+    - XEL
+    - XOM
+    - XYL
+    - XYZ
+    - YUM
+    - ZBH
+    - ZTS
+  timeframe: "D1"             # Timeframe identifier (D1 = daily)
+  lookback_days: 300          # Bars fetched per symbol per run (300 trading days ~ 15 months)
+
+# ─── Spider Gate ───────────────────────────────────────────────────────────────
+spider_gate:
+  enabled: true               # Toggle: true = use gate, false = always allow
+  file: "data/cleaned/spiders_daily/gate/spider_gate_daily.parquet"
+
+# ─── Entry / Exit ──────────────────────────────────────────────────────────────
+entry:
+  require_stage2_history: true
+  stage_target: 7             # Stage that triggers signal (Stage 7 = Breakout Confirmed)
+
+exit:
+  time_stop_days: 365         # Backtest: config/backtest.yaml time_stop_days: 365
+  gap_protection: true        # Exit at open if open gaps below stop
+  stage9_exit: true           # Exit next open when Stage 9 detected
+
+stop:
+  mode: "atr"                 # "atr" | "fixed_pct"
+  atr_multiplier: 2.0         # Backtest default: ATR(14) x 2.0
+  atr_period: 14              # Wilder's 14-period ATR
+  floor_pct: 0.005            # Min stop distance = 0.5% of entry
+
+  timeframe: "D1"
+  lookback_days: 300
+
+spider_gate:
+  enabled: true
+  file: "data/cleaned/spiders_daily/gate/spider_gate_daily.parquet"
+
+entry:
+  require_stage2_history: true
+  stage_target: 7
+
+exit:
+  time_stop_days: 365
+  gap_protection: true
+  stage9_exit: true
+
+stop:
+  mode: "atr"
+  atr_multiplier: 2.0
+  atr_period: 14
+  floor_pct: 0.005
+
+portfolio:
+  max_open_positions: 5
+  max_sector_concentration: 0.35
+  max_single_position_pct: 0.20
+
+circuit_breakers:
+  daily_drawdown_halt_pct: 0.03
+  weekly_drawdown_halt_pct: 0.07
+  consecutive_loss_halt: 5
+  enabled: true
+
+scheduling:
+  signal_time_utc: "21:05"
+  execution_time_utc: "13:31"
+  timezone: "UTC"

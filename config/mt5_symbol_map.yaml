@@ -1,0 +1,44 @@
+# config/mt5_symbol_map.yaml
+# ─── MT5 Symbol Mapping ─────────────────────────────────────────────────────────
+# Maps internal ticker names to exact MT5 broker symbol strings
+# Run tools/mt5_symbol_inspector.py to discover correct suffixes for your broker
+
+# Format:
+#   TICKER: "MT5_SYMBOL"
+#
+# Common suffix patterns by broker:
+#   IC Markets:   AAPL.US  / MSFT.US
+#   Pepperstone:  AAPL     / MSFT  (no suffix)
+#   Admiral:      AAPLm    / MSFTm
+#   XM:           AAPL.NYSE
+
+symbols:
+  AAPL: ""      # Fill after running mt5_symbol_inspector.py
+  MSFT: ""
+  GOOGL: ""
+  AMZN: ""
+  META: ""
+  NVDA: ""
+  TSLA: ""
+  JPM: ""
+  JNJ: ""
+  V: ""
+  UNH: ""
+  XOM: ""
+  WMT: ""
+  PG: ""
+  MA: ""
+  HD: ""
+  CVX: ""
+  MRK: ""
+  ABBV: ""
+  PEP: ""
+
+# Filling mode overrides (FOK=1, IOC=2, RETURN=4)
+# Leave empty to auto-detect from broker symbol info
+filling_overrides: {}
+# Example:
+#   AAPL.US: 2    # Force IOC for this symbol
+
+# Global fallback filling mode
+global_filling_mode: "IOC"   # "FOK" | "IOC" | "RETURN"

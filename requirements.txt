@@ -1,0 +1,21 @@
+# Core
+pandas>=2.0.0
+numpy>=1.24.0
+pyarrow>=14.0.0
+pyyaml>=6.0
+openpyxl>=3.1.0
+requests>=2.31.0
+python-dotenv>=1.0.0
+schedule>=1.2.0
+pytz>=2023.3
+apscheduler>=3.10.0
+
+# IG Group execution (primary broker)
+trading_ig>=0.0.11
+yfinance>=0.2.40
+
+# TwelveData -- OHLCV data (same source as backtest, exact signal parity)
+twelvedata>=1.2.0
+
+# MT5 execution (legacy -- only needed if broker=mt5, Windows only)
+# MetaTrader5>=5.0.45

@@ -1,0 +1,14 @@
+# railway.toml
+# APEX — Railway deployment config
+
+[build]
+builder = "nixpacks"
+
+[deploy]
+startCommand = "python scheduler.py"
+restartPolicyType = "always"
+restartPolicyMaxRetries = 10
+
+# Persistent volume mounted at /app/state
+# Create in Railway dashboard: Settings -> Volumes -> Mount path: /app/state
+# This preserves stage2_memory.json, positions.json, trade_log.json across deploys.

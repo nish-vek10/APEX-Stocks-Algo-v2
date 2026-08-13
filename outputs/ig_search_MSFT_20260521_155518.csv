@@ -1,0 +1,6 @@
+query,epic,instrument_name,instrument_type
+MSFT,UC.D.MSFT.CASH.IP,Microsoft Corp (24 Hours),SHARES
+MSFT,ED.D.MSFGY.CASH.IP,Microsoft Corporation (DE),SHARES
+MSFT,KA.D.MSFILN.CASH.IP,IncomeShares Microsoft MSFT Options ETP,SHARES
+MSFT,SI.D.MSFOUS.CASH.IP,YieldMax MSFT Option Income Strategy ETF,SHARES
+MSFT,KA.D.3SMFLN.CASH.IP,Leverage Shares -3x Short Microsoft MSFT ETP Securities,SHARES

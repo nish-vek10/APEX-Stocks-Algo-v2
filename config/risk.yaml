@@ -1,0 +1,62 @@
+# config/risk.yaml
+# ─── APEX Risk Configuration ────────────────────────────────────────────────────
+
+# Active sizing mode — switch here without touching code
+active_mode: "equity_pct"   # Options: equity_pct | fixed_dollar_risk | fixed_lots | atr_dynamic | volume_based
+
+# ─── Mode 1: Equity Percentage ─────────────────────────────────────────────────
+# Risk a fixed % of current equity per trade
+# shares = (equity * risk_pct * gate_mult) / stop_distance_per_share
+equity_pct:
+  risk_pct_per_trade: 0.01    # 1.0% of equity risked per trade
+  max_position_pct: 0.20      # Hard cap: position value <= 20% of equity
+
+# ─── Mode 2: Fixed Dollar Risk ────────────────────────────────────────────────
+# Risk a fixed dollar amount per trade regardless of equity
+# shares = (fixed_risk_dollars * gate_mult) / stop_distance_per_share
+fixed_dollar_risk:
+  risk_dollars: 200.0         # Dollar amount risked per trade
+  max_position_pct: 0.20
+
+# ─── Mode 3: Fixed Lots ────────────────────────────────────────────────────────
+# Trade a fixed number of shares every time (no ATR/stop sizing)
+# shares = fixed_lots (gate_mult applied as fractional scale)
+fixed_lots:
+  lots: 10                    # Fixed shares per trade
+  apply_gate_multiplier: true # If true: lots * gate_mult (can reduce size)
+
+# ─── Mode 4: ATR Dynamic ──────────────────────────────────────────────────────
+# Position size inversely proportional to volatility (ATR)
+# shares = (equity * vol_target_pct) / (atr * atr_scale_factor)
+atr_dynamic:
+  vol_target_pct: 0.01        # Target 1% portfolio volatility contribution
+  atr_scale_factor: 2.0       # Divisor applied to ATR
+  atr_period: 14
+  max_position_pct: 0.20
+
+# ─── Mode 5: Volume Based ─────────────────────────────────────────────────────
+# Size based on average daily volume (liquidity-aware)
+# shares = min(adv_pct * avg_volume, equity_pct_cap * equity / price)
+volume_based:
+  adv_participation_pct: 0.01  # Take up to 1% of average daily volume
+  lookback_days: 20            # Days for ADV calculation
+  equity_pct_cap: 0.10         # Hard cap: position <= 10% of equity
+  max_position_pct: 0.20
+
+# ─── Gate Risk Multipliers ────────────────────────────────────────────────────
+# Applied on top of whichever sizing mode is active
+# gate_mult is sourced from spider_gate or defaults to 1.0 if gate disabled
+gate_multipliers:
+  stage_1: 0.5
+  stage_2: 0.75
+  stage_3: 1.0
+  stage_4: 1.0
+  stage_5: 0.85
+  stage_6: 0.75
+  default: 1.0
+
+# ─── Global Floors / Caps ─────────────────────────────────────────────────────
+global:
+  min_shares: 1
+  max_shares: 10000
+  min_position_value: 100.0   # Skip if position value < $100

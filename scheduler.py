@@ -1,0 +1,206 @@
+# scheduler.py
+"""
+APEX Cloud Scheduler — Railway deployment entry point.
+
+Runs two jobs on a Mon-Fri schedule (UTC):
+  21:05  -> python run_prod.py --mode signals
+  13:31  -> python run_prod.py --mode execution
+
+Retry policy: up to MAX_RETRIES attempts per job.
+              RETRY_DELAY_SEC between attempts.
+              Telegram alert fired if all retries exhausted.
+
+Deploy on Railway:
+  Procfile  -> worker: python scheduler.py
+  Volume    -> mount at /app/state  (persists state/*.json across deploys)
+"""
+from __future__ import annotations
+
+import logging
+import os
+import subprocess
+import sys
+import time
+from datetime import datetime, timezone
+from pathlib import Path
+
+from apscheduler.schedulers.blocking import BlockingScheduler
+from apscheduler.events import EVENT_JOB_ERROR, EVENT_JOB_EXECUTED
+from dotenv import load_dotenv
+
+# ── Bootstrap ─────────────────────────────────────────────────────────────────
+
+ROOT = Path(__file__).resolve().parent
+load_dotenv(ROOT / ".env")
+
+# Ensure project root on path
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from core.utils.logging import setup_logger
+from prod.monitoring.alert import send_alert
+
+setup_logger("apex", ROOT / "logs", console=True)
+logger = logging.getLogger("scheduler")
+
+# ── Config ────────────────────────────────────────────────────────────────────
+
+MAX_RETRIES    = int(os.environ.get("APEX_MAX_RETRIES", 3))
+RETRY_DELAY    = int(os.environ.get("APEX_RETRY_DELAY_SEC", 300))   # 5 min between retries
+SIGNAL_HOUR    = int(os.environ.get("APEX_SIGNAL_HOUR", 21))
+SIGNAL_MIN     = int(os.environ.get("APEX_SIGNAL_MIN", 5))
+EXEC_HOUR      = int(os.environ.get("APEX_EXEC_HOUR", 13))
+EXEC_MIN       = int(os.environ.get("APEX_EXEC_MIN", 31))
+
+
+# ── Job runner with retry ─────────────────────────────────────────────────────
+
+def run_mode(mode: str) -> None:
+    """
+    Run run_prod.py --mode <mode> with retry logic.
+    Sends Telegram alert on success and on all-retries-exhausted failure.
+    """
+    ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    logger.info("SCHEDULER: starting job mode=%s @ %s", mode, ts)
+
+    for attempt in range(1, MAX_RETRIES + 1):
+        logger.info("mode=%s attempt=%d/%d", mode, attempt, MAX_RETRIES)
+
+        result = subprocess.run(
+            [sys.executable, str(ROOT / "run_prod.py"), "--mode", mode],
+            capture_output=True,
+            text=True,
+            cwd=str(ROOT),
+        )
+
+        stdout = result.stdout.strip()
+        stderr = result.stderr.strip()
+
+        if stdout:
+            logger.info("[%s stdout]\n%s", mode, stdout)
+        if stderr:
+            logger.warning("[%s stderr]\n%s", mode, stderr)
+
+        if result.returncode == 0:
+            logger.info("mode=%s completed successfully on attempt %d", mode, attempt)
+            return
+
+        logger.error(
+            "mode=%s failed (attempt %d/%d) | returncode=%d",
+            mode, attempt, MAX_RETRIES, result.returncode,
+        )
+
+        if attempt < MAX_RETRIES:
+            logger.info("Retrying in %d seconds...", RETRY_DELAY)
+            send_alert(
+                f"APEX scheduler: mode={mode} attempt {attempt}/{MAX_RETRIES} failed. "
+                f"Retrying in {RETRY_DELAY // 60} min.",
+                level="WARNING",
+                telegram_text=(
+                    f"⚠️ <b>APEX RETRY</b>\n"
+                    f"──────────────────────\n"
+                    f"Mode:     {mode.upper()}\n"
+                    f"Attempt:  {attempt}/{MAX_RETRIES}\n"
+                    f"Error:    returncode={result.returncode}\n"
+                    f"Retrying in {RETRY_DELAY // 60} min...\n"
+                    f"──────────────────────"
+                ),
+            )
+            time.sleep(RETRY_DELAY)
+
+    # All retries exhausted
+    logger.critical("mode=%s FAILED after %d attempts — manual intervention required", mode, MAX_RETRIES)
+    send_alert(
+        f"APEX SCHEDULER FAILURE: mode={mode} failed after {MAX_RETRIES} attempts.",
+        level="CRITICAL",
+        telegram_text=(
+            f"🔥 <b>APEX SCHEDULER FAILURE</b>\n"
+            f"──────────────────────\n"
+            f"Mode:     {mode.upper()}\n"
+            f"Attempts: {MAX_RETRIES}/{MAX_RETRIES} — all failed\n"
+            f"Time:     {ts}\n"
+            f"──────────────────────\n"
+            f"⛔ Manual intervention required.\n"
+            f"Check: <code>logs/run_*.jsonl</code>"
+        ),
+    )
+
+
+def job_signals() -> None:
+    run_mode("signals")
+
+
+def job_execution() -> None:
+    run_mode("execution")
+
+
+# ── APScheduler event hooks ───────────────────────────────────────────────────
+
+def on_job_event(event) -> None:
+    if event.exception:
+        logger.error("Scheduler job raised exception: %s", event.exception)
+
+
+# ── Entry point ───────────────────────────────────────────────────────────────
+
+def main() -> None:
+    logger.info(
+        "APEX Scheduler starting | signals=%02d:%02d UTC | execution=%02d:%02d UTC | "
+        "retries=%d | retry_delay=%ds | days=Mon-Fri",
+        SIGNAL_HOUR, SIGNAL_MIN, EXEC_HOUR, EXEC_MIN, MAX_RETRIES, RETRY_DELAY,
+    )
+
+    send_alert(
+        "APEX Scheduler started.",
+        level="INFO",
+        telegram_text=(
+            f"🕐 <b>APEX SCHEDULER STARTED</b>\n"
+            f"──────────────────────\n"
+            f"Signals:   {SIGNAL_HOUR:02d}:{SIGNAL_MIN:02d} UTC (Mon-Fri)\n"
+            f"Execution: {EXEC_HOUR:02d}:{EXEC_MIN:02d} UTC (Mon-Fri)\n"
+            f"Retries:   {MAX_RETRIES} × {RETRY_DELAY // 60}min gap\n"
+            f"──────────────────────"
+        ),
+    )
+
+    scheduler = BlockingScheduler(timezone="UTC")
+    scheduler.add_listener(on_job_event, EVENT_JOB_ERROR)
+
+    # EOD signals — after US market close
+    scheduler.add_job(
+        job_signals,
+        trigger="cron",
+        day_of_week="mon-fri",
+        hour=SIGNAL_HOUR,
+        minute=SIGNAL_MIN,
+        id="apex_signals",
+        name="APEX EOD Signals",
+        misfire_grace_time=1800,   # allow up to 30-min late start (e.g. cold boot)
+        coalesce=True,             # don't stack if missed multiple fires
+    )
+
+    # AM execution — after US market open
+    scheduler.add_job(
+        job_execution,
+        trigger="cron",
+        day_of_week="mon-fri",
+        hour=EXEC_HOUR,
+        minute=EXEC_MIN,
+        id="apex_execution",
+        name="APEX AM Execution",
+        misfire_grace_time=1800,
+        coalesce=True,
+    )
+
+    logger.info("Scheduler running. Next jobs:")
+    for job in scheduler.get_jobs():
+        logger.info("  %s -> next: %s", job.name, job.next_run_time)
+
+    try:
+        scheduler.start()
+    except (KeyboardInterrupt, SystemExit):
+        logger.info("Scheduler stopped.")
+
+
+if __name__ == "__main__":
+    main()

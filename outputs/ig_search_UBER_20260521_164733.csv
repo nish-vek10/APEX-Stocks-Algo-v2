@@ -1,0 +1,8 @@
+query,epic,instrument_name,instrument_type
+UBER,KA.D.SUBRLN.CASH.IP,Leverage Shares -1x Uber ETP,SHARES
+UBER,KA.D.2UBRLN.CASH.IP,Leverage Shares 2x Uber ETP,SHARES
+UBER,KA.D.UBR3LN.CASH.IP,Leverage Shares 3x UBER ETP,SHARES
+UBER,KA.D.3LUBLN.CASH.IP,GraniteShares 3x Long Uber Daily ETP,SHARES
+UBER,KA.D.3SUBLN.CASH.IP,GraniteShares 3x Short Uber Daily ETP,SHARES
+UBER,KA.D.3UBELN.CASH.IP,Leverage Shares 3x UBER ETP - EUR,SHARES
+UBER,KA.D.3UBRLN.CASH.IP,Leverage Shares 3x UBER ETP - GBp,SHARES

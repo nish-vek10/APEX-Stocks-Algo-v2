@@ -1,0 +1,4 @@
+query,epic,instrument_name,instrument_type
+TSM,SI.D.TSMYUS.CASH.IP,Yieldmax Tsm Option Income Strategy Etf,SHARES
+TSM,KA.D.TSMYLN.CASH.IP,IncomeShares Taiwan Semiconductors TSM Options ETP,SHARES
+TSM,KA.D.TSM3LN.CASH.IP,Leverage Shares 3x Long Taiwan Semiconductor TSM ETP Securities,SHARES

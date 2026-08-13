@@ -1,0 +1,25 @@
+# config/stages.yaml
+# ─── APEX Stage Classifier Configuration ───────────────────────────────────────
+# EXACT REPLICATION of algo-stocks backtest stage_classifier.py
+# Source: universe_baseline_v1_20260224_2310 | PF 2.26 | E[R] 0.63
+#
+# Stage logic is implemented directly in core/stages/stage_classifier.py.
+# This file holds override parameters and gate logic only.
+# Do NOT add indicator thresholds here — they live in config/indicators.yaml.
+
+stage_logic:
+  require_breakout_before_inzone: true   # Stage 8/9 require prior Stage 6/7 in history
+
+# ── Stage 2 prerequisite (applied in signal_generator.py, not classifier) ──────
+# Once a ticker prints Stage 2, it is eligible-in-principle for Stage 6/7 entry.
+# This memory is expanding + permanent — stored in state/stage2_memory.json.
+# Enforced using shift(1) + cummax (point-in-time safe, matches 09A exactly).
+
+# ── Entry stages ──────────────────────────────────────────────────────────────
+# Matches backtest config/backtest.yaml: entry_stages: [6, 7]
+entry_stages: [6, 7]
+
+# ── Stage 9 exit ──────────────────────────────────────────────────────────────
+# Stage 9 detected at EOD close → exit at next open
+# Matches backtest exit.stage9_exit_enabled: true
+stage9_exit_enabled: true

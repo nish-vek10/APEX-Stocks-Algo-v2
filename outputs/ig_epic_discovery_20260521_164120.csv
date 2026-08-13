@@ -1,0 +1,21 @@
+ticker,epic,method,status,instrument_name,instrument_type,error
+AAPL,UA.D.AAPL.CASH.IP,search:ticker,FOUND,Apple Inc (24 Hours),SHARES,
+MSFT,UC.D.MSFT.CASH.IP,search:ticker,FOUND,Microsoft Corp (24 Hours),SHARES,
+GOOGL,UB.D.GOOGL.CASH.IP,search:ticker,FOUND,Alphabet Inc - A (24 Hours),SHARES,
+AMZN,UA.D.AMZN.CASH.IP,search:ticker,FOUND,Amazon.com Inc (24 Hours),SHARES,
+META,UB.D.FB.CASH.IP,search:ticker,FOUND,Meta Platforms Inc (24 Hours),SHARES,
+NVDA,UC.D.NVDA.CASH.IP,search:ticker,FOUND,NVIDIA Corp (24 Hours),SHARES,
+TSLA,UD.D.TSLA.CASH.IP,search:ticker,FOUND,Tesla Motors Inc (24 Hours),SHARES,
+JPM,,--,NOT_FOUND,,,exhausted all methods
+JNJ,,--,NOT_FOUND,,,exhausted all methods
+V,,--,NOT_FOUND,,,exhausted all methods
+UNH,,--,NOT_FOUND,,,exhausted all methods
+XOM,,--,NOT_FOUND,,,exhausted all methods
+WMT,,--,NOT_FOUND,,,exhausted all methods
+PG,,--,NOT_FOUND,,,exhausted all methods
+MA,,--,NOT_FOUND,,,exhausted all methods
+HD,,--,NOT_FOUND,,,exhausted all methods
+CVX,,--,NOT_FOUND,,,exhausted all methods
+MRK,,--,NOT_FOUND,,,exhausted all methods
+ABBV,,--,NOT_FOUND,,,exhausted all methods
+PEP,,--,NOT_FOUND,,,exhausted all methods

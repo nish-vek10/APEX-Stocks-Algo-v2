@@ -1,0 +1,21 @@
+ticker,epic,status,instrument_name,instrument_type,error
+AAPL,UA.D.AAPL.CASH.IP,FOUND,Apple Inc (24 Hours),SHARES,
+MSFT,UC.D.MSFT.CASH.IP,FOUND,Microsoft Corp (24 Hours),SHARES,
+GOOGL,UB.D.GOOGL.CASH.IP,FOUND,Alphabet Inc - A (24 Hours),SHARES,
+AMZN,UA.D.AMZN.CASH.IP,FOUND,Amazon.com Inc (24 Hours),SHARES,
+META,,NOT_FOUND,,,No clean SHARES match
+NVDA,UC.D.NVDA.CASH.IP,FOUND,NVIDIA Corp (24 Hours),SHARES,
+TSLA,UD.D.TSLA.CASH.IP,FOUND,Tesla Motors Inc (24 Hours),SHARES,
+JPM,,NOT_FOUND,,,No clean SHARES match
+JNJ,,NO_RESULTS,,,
+V,,NO_RESULTS,,,
+UNH,,NOT_FOUND,,,No clean SHARES match
+XOM,,NOT_FOUND,,,No clean SHARES match
+WMT,,NO_RESULTS,,,
+PG,,NOT_FOUND,,,No clean SHARES match
+MA,,NOT_FOUND,,,No clean SHARES match
+HD,,NOT_FOUND,,,No clean SHARES match
+CVX,,NOT_FOUND,,,No clean SHARES match
+MRK,,NOT_FOUND,,,No clean SHARES match
+ABBV,,NO_RESULTS,,,
+PEP,,NOT_FOUND,,,No clean SHARES match

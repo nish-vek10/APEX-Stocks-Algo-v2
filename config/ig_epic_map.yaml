@@ -1,0 +1,149 @@
+# config/ig_epic_map.yaml
+# -- IG Epic Mapping -------------------------------------------------------
+# Full universe: 82 US equity 24h cash CFDs on IG demo CFD account (Z5S2OK)
+# Validated: 2026-06-01 via export_full_universe.py + ig_epic_inspector.py
+#
+# Format: {PREFIX}.D.{IG_TICKER}.CASH.IP  (undated 24h cash CFD)
+# KEY = yfinance ticker (used for data fetch + stage classification)
+# VALUE = IG epic (used for live price + order execution)
+# NOTE: IG uses old/internal tickers in epics -- see inline comments.
+# -------------------------------------------------------------------------
+
+epics:
+  # ── Mega Cap Tech ──────────────────────────────────────────────────────────
+  AAPL:  "UA.D.AAPL.CASH.IP"          # Apple Inc
+  MSFT:  "UC.D.MSFT.CASH.IP"          # Microsoft Corp
+  GOOGL: "UB.D.GOOGL.CASH.IP"         # Alphabet Inc (Class A)
+  AMZN:  "UA.D.AMZN.CASH.IP"          # Amazon.com Inc
+  META:  "UB.D.FB.CASH.IP"            # Meta Platforms -- IG uses old FB ticker
+  NVDA:  "UC.D.NVDA.CASH.IP"          # NVIDIA Corp
+  TSLA:  "UD.D.TSLA.CASH.IP"          # Tesla Inc
+
+  # ── Semiconductors ────────────────────────────────────────────────────────
+  AMD:   "SA.D.AMD.CASH.IP"           # Advanced Micro Devices
+  INTC:  "UB.D.INTC.CASH.IP"          # Intel Corp
+  AVGO:  "UA.D.AVGO.CASH.IP"          # Broadcom Inc
+  QCOM:  "UC.D.QCOM.CASH.IP"          # QUALCOMM Inc
+  MU:    "UC.D.MU.CASH.IP"            # Micron Technology
+  AMAT:  "UA.D.AMAT.CASH.IP"          # Applied Materials
+  KLAC:  "UB.D.KLAC.CASH.IP"          # KLA Corp
+  LRCX:  "UB.D.LRCX.CASH.IP"          # Lam Research
+  NXPI:  "UC.D.NXPI.CASH.IP"          # NXP Semiconductors
+  ADI:   "UA.D.ADI.CASH.IP"           # Analog Devices
+  MRVL:  "UC.D.MRVL.CASH.IP"          # Marvell Technology
+  "ON":  "UC.D.ONNN.CASH.IP"           # ON Semiconductor -- quoted: YAML parses bare ON as boolean
+  ARM:   "UA.D.ARMUS.CASH.IP"         # ARM Holdings ADR -- IG uses ARMUS
+  CDNS:  "UA.D.CDN.CASH.IP"           # Cadence Design Systems -- IG uses CDN
+
+  # ── Software / Cloud ──────────────────────────────────────────────────────
+  ADBE:  "UA.D.ADBE.CASH.IP"          # Adobe Systems
+  INTU:  "UB.D.INTU.CASH.IP"          # Intuit Inc
+  CRWD:  "UA.D.CRWDUS.CASH.IP"        # CrowdStrike Holdings -- IG uses CRWDUS
+  PANW:  "SE.D.PANWUS.CASH.IP"        # Palo Alto Networks -- IG uses PANWUS + SE prefix
+  FTNT:  "UB.D.FTNT.CASH.IP"          # Fortinet Inc
+  ZS:    "UD.D.ZSUS.CASH.IP"          # Zscaler -- IG uses ZSUS
+  DDOG:  "UB.D.DDOGUS.CASH.IP"        # Datadog -- IG uses DDOGUS
+  OKTA:  "UC.D.OKTAUS.CASH.IP"        # Okta Inc -- IG uses OKTAUS
+  TEAM:  "UD.D.TEAMUS.CASH.IP"        # Atlassian -- IG uses TEAMUS
+  DOCU:  "UB.D.DOCUUS.CASH.IP"        # DocuSign -- IG uses DOCUUS
+  TTD:   "UD.D.TTDUS.CASH.IP"         # Trade Desk -- IG uses TTDUS
+  CSGP:  "UA.D.CSGPUS.CASH.IP"        # CoStar Group -- IG uses CSGPUS
+  CTSH:  "UA.D.CTSH.CASH.IP"          # Cognizant Technology Solutions
+  AKAM:  "UA.D.AKAM.CASH.IP"          # Akamai Technologies
+  FFIV:  "UB.D.FFIV.CASH.IP"          # F5 Inc
+  VRSN:  "UD.D.VRSN.CASH.IP"          # VeriSign Inc
+  CSCO:  "UA.D.CSCO.CASH.IP"          # Cisco Systems
+  NTAP:  "UC.D.NTAP.CASH.IP"          # NetApp Inc
+
+  # ── High-Growth / Disruptive Tech ─────────────────────────────────────────
+  NFLX:  "UC.D.NFLX.CASH.IP"          # Netflix Inc
+  PLTR:  "SE.D.PLTRUS.CASH.IP"        # Palantir Technologies -- IG uses PLTRUS + SE prefix
+  PYPL:  "UC.D.PYPLVUS.CASH.IP"       # PayPal Holdings -- IG uses PYPLVUS
+  AFRM:  "UA.D.AFRMUS.CASH.IP"        # Affirm Holdings -- IG uses AFRMUS
+  ROKU:  "UC.D.ROKUUS.CASH.IP"        # Roku Inc -- IG uses ROKUUS
+  ZM:    "UD.D.ZMUS.CASH.IP"          # Zoom Video -- IG uses ZMUS
+  UPST:  "UD.D.UPSTUS.CASH.IP"        # Upstart Holdings -- IG uses UPSTUS
+  DUOL:  "UB.D.DUOLUS.CASH.IP"        # Duolingo -- IG uses DUOLUS
+  DXCM:  "UB.D.DXCM.CASH.IP"         # DexCom Inc
+
+  # ── E-Commerce / Internet ─────────────────────────────────────────────────
+  EBAY:  "UB.D.EBAY.CASH.IP"          # eBay Inc
+  EXPE:  "UB.D.EXPE.CASH.IP"          # Expedia Group
+  BKNG:  "UC.D.PCLN.CASH.IP"          # Booking Holdings -- IG uses old PCLN ticker
+  ABNB:  "UA.D.ABNBUS.CASH.IP"        # Airbnb -- IG uses ABNBUS
+  LYFT:  "UB.D.LYFTUS.CASH.IP"        # Lyft Inc -- IG uses LYFTUS
+
+  # ── Streaming / Media / Entertainment ────────────────────────────────────
+  EA:    "UB.D.ERTS.CASH.IP"          # Electronic Arts -- IG uses old ERTS ticker
+  TTWO:  "UD.D.TTWO.CASH.IP"          # Take-Two Interactive
+  FOXA:  "UB.D.FOXCAUS.CASH.IP"       # Fox Corp Class A -- IG uses FOXCAUS
+  FOX:   "UB.D.FOXCUS.CASH.IP"        # Fox Corp Class B -- IG uses FOXCUS
+
+  # ── Fintech / Financial Services ─────────────────────────────────────────
+  COIN:  "UA.D.COINUS.CASH.IP"        # Coinbase Global -- IG uses COINUS
+  FISV:  "UB.D.FISV.CASH.IP"          # Fiserv Inc
+  CME:   "UA.D.CME.CASH.IP"           # CME Group
+  NDAQ:  "UC.D.NDAQ.CASH.IP"          # Nasdaq Inc
+  FITB:  "UB.D.FITB.CASH.IP"          # Fifth Third Bancorp
+  HBAN:  "UB.D.HBAN.CASH.IP"          # Huntington Bancshares
+  NTRS:  "UC.D.NTRS.CASH.IP"          # Northern Trust Corp
+  TROW:  "UD.D.TROW.CASH.IP"          # T. Rowe Price Group
+
+  # ── Consumer / Retail ─────────────────────────────────────────────────────
+  SBUX:  "UD.D.SBUX.CASH.IP"          # Starbucks Corp
+  COST:  "UA.D.COST.CASH.IP"          # Costco Wholesale
+  DLTR:  "UB.D.DLTR.CASH.IP"          # Dollar Tree
+  ULTA:  "UD.D.ULTAUS.CASH.IP"        # Ulta Beauty -- IG uses ULTAUS
+  MNST:  "UC.D.MNST.CASH.IP"          # Monster Beverage
+  HAS:   "UB.D.HAS.CASH.IP"           # Hasbro Inc
+  MDLZ:  "UB.D.KFT.CASH.IP"           # Mondelez International -- IG uses old KFT ticker
+  WYNN:  "UD.D.WYNN.CASH.IP"          # Wynn Resorts
+
+  # ── Healthcare / Biotech ──────────────────────────────────────────────────
+  AMGN:  "UA.D.AMGN.CASH.IP"          # Amgen Inc
+  INCY:  "UB.D.INCY.CASH.IP"          # Incyte Corp
+  HOLX:  "UB.D.HOLX.CASH.IP"          # Hologic Inc
+  NVAX:  "UC.D.NVAX.CASH.IP"          # Novavax Inc
+  MRNA:  "UC.D.MRNAUS.CASH.IP"        # Moderna Inc -- IG uses MRNAUS
+  PODD:  "UC.D.PODDUS.CASH.IP"        # Insulet Corp -- IG uses PODDUS
+  GEHC:  "UB.D.GEHCVUS.CASH.IP"       # GE HealthCare -- IG uses GEHCVUS
+
+  # ── Clean Energy / EV ─────────────────────────────────────────────────────
+  ENPH:  "UB.D.ENPHUS.CASH.IP"        # Enphase Energy -- IG uses ENPHUS
+  FSLR:  "UB.D.FSLR.CASH.IP"          # First Solar
+  SEDG:  "UD.D.SEDGUS.CASH.IP"        # SolarEdge Technologies -- IG uses SEDGUS
+  CELH:  "UA.D.CELHUS.CASH.IP"        # Celsius Holdings -- IG uses CELHUS
+
+  # ── Industrials / Transport ───────────────────────────────────────────────
+  AXON:  "UD.D.TASR.CASH.IP"          # Axon Enterprise -- IG uses old TASR ticker
+  CPRT:  "UA.D.CPRT.CASH.IP"          # Copart Inc
+  CHRW:  "UA.D.CHRW.CASH.IP"          # CH Robinson Worldwide
+  JBHT:  "UB.D.JBHT.CASH.IP"          # JB Hunt Transport
+  PCAR:  "UC.D.PCAR.CASH.IP"          # PACCAR Inc
+  TRMB:  "UD.D.TRMB.CASH.IP"          # Trimble Inc
+  GRMN:  "UB.D.GRMN.CASH.IP"          # Garmin Ltd
+  ZBRA:  "UD.D.ZBRA.CASH.IP"          # Zebra Technologies
+  CDW:   "UA.D.CDWUS.CASH.IP"         # CDW Corp -- IG uses CDWUS
+  CTAS:  "UA.D.CTAS.CASH.IP"          # Cintas Corp
+  TMUS:  "SE.D.PCSUS.CASH.IP"         # T-Mobile US -- IG uses PCSUS + SE prefix
+  MAR:   "UC.D.MARUS.CASH.IP"         # Marriott International -- IG uses MARUS
+  PAYX:  "UC.D.PAYX.CASH.IP"          # Paychex Inc
+  WDC:   "UD.D.WDC.CASH.IP"           # Western Digital
+  SWKS:  "UD.D.SWKS.CASH.IP"          # Skyworks Solutions
+  MPWR:  "UC.D.MPWR.CASH.IP"          # Monolithic Power Systems
+  MTCH:  "UC.D.MTCHUS.CASH.IP"        # Match Group -- IG uses MTCHUS
+  GEN:   "UD.D.SYMC.CASH.IP"          # Gen Digital -- IG uses old SYMC ticker
+  POOL:  "UC.D.POOL.CASH.IP"          # Pool Corp
+  JKHY:  "UB.D.JKHY.CASH.IP"          # Jack Henry & Associates
+  CINF:  "UA.D.CINF.CASH.IP"          # Cincinnati Financial
+  NDSN:  "UC.D.NDSN.CASH.IP"          # Nordson Corp
+  VTRS:  "UD.D.VTRSUS.CASH.IP"        # Viatris Inc -- IG uses VTRSUS
+  ALAB:  "UA.D.ALABUS.CASH.IP"        # Astera Labs -- IG uses ALABUS
+
+# Currency code per ticker (USD for all US equities)
+currency_codes:
+  default: "USD"
+
+# Expiry: "-" = undated rolling (correct for CASH.IP epics)
+expiry:
+  default: "-"

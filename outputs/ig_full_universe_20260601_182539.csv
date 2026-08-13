@@ -1,0 +1,7 @@
+ticker_in_epic,epic,instrument_name,currency,market_status,search_term
+AAPL,UA.D.AAPL.CASH.IP,Apple Inc (24 Hours),N/A,TRADEABLE,Inc
+ABNBUS,UA.D.ABNBUS.CASH.IP,Airbnb Inc (24 Hours),N/A,TRADEABLE,Inc
+AMGN,UA.D.AMGN.CASH.IP,Amgen Inc (24 Hours),N/A,TRADEABLE,Inc
+FB,UB.D.FB.CASH.IP,Meta Platforms Inc (24 Hours),N/A,TRADEABLE,Inc
+FFIV,UB.D.FFIV.CASH.IP,F5 Inc (24 Hours),N/A,TRADEABLE,Inc
+PMTC,UC.D.PMTC.CASH.IP,PTC Inc (24 Hours),N/A,TRADEABLE,Inc

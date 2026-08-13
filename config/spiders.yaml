@@ -1,0 +1,80 @@
+# config/spiders.yaml
+# ─── APEX Spider Gate Configuration ────────────────────────────────────────────
+# 10 sector composite series acting as macro permission layer
+
+spiders:
+  - id: "XLK"
+    name: "Technology"
+    description: "SPDR Technology Sector ETF composite"
+    tickers: ["AAPL", "MSFT", "NVDA", "GOOGL", "META"]
+    weight: 1.0
+
+  - id: "XLF"
+    name: "Financials"
+    description: "SPDR Financials Sector ETF composite"
+    tickers: ["JPM", "BAC", "WFC", "GS", "MS"]
+    weight: 1.0
+
+  - id: "XLV"
+    name: "Healthcare"
+    description: "SPDR Healthcare Sector ETF composite"
+    tickers: ["JNJ", "UNH", "PFE", "ABBV", "MRK"]
+    weight: 1.0
+
+  - id: "XLE"
+    name: "Energy"
+    description: "SPDR Energy Sector ETF composite"
+    tickers: ["XOM", "CVX", "COP", "SLB", "EOG"]
+    weight: 1.0
+
+  - id: "XLY"
+    name: "Consumer Discretionary"
+    description: "SPDR Consumer Discretionary ETF composite"
+    tickers: ["AMZN", "TSLA", "HD", "NKE", "MCD"]
+    weight: 1.0
+
+  - id: "XLP"
+    name: "Consumer Staples"
+    description: "SPDR Consumer Staples ETF composite"
+    tickers: ["PG", "KO", "PEP", "WMT", "COST"]
+    weight: 1.0
+
+  - id: "XLI"
+    name: "Industrials"
+    description: "SPDR Industrials Sector ETF composite"
+    tickers: ["HON", "UPS", "CAT", "DE", "GE"]
+    weight: 1.0
+
+  - id: "XLB"
+    name: "Materials"
+    description: "SPDR Materials Sector ETF composite"
+    tickers: ["LIN", "APD", "ECL", "DD", "NEM"]
+    weight: 1.0
+
+  - id: "XLU"
+    name: "Utilities"
+    description: "SPDR Utilities Sector ETF composite"
+    tickers: ["NEE", "DUK", "SO", "AEP", "EXC"]
+    weight: 1.0
+
+  - id: "XLRE"
+    name: "Real Estate"
+    description: "SPDR Real Estate Sector ETF composite"
+    tickers: ["AMT", "PLD", "CCI", "EQIX", "PSA"]
+    weight: 1.0
+
+# Stage thresholds for gate decision
+gate_rules:
+  allowed_stages: [3, 4, 5, 6, 7]   # Spider stages that permit trading
+  blocked_stages: [1, 2, 8, 9]       # Spider stages that block trading
+  risk_multipliers:
+    stage_1: 0.0    # Blocked
+    stage_2: 0.5
+    stage_3: 0.75
+    stage_4: 1.0
+    stage_5: 1.0
+    stage_6: 0.85
+    stage_7: 1.0
+    stage_8: 0.5
+    stage_9: 0.0    # Blocked
+    default: 1.0

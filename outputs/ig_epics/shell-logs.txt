@@ -1,0 +1,21 @@
+Sweep complete.
+  Searches run    : 764
+  Raw API results : 13711
+  Unique epics    : 8206
+
+──────────────────────────────────────────────────
+Breakdown by instrument type:
+  SHARES                          6990
+  BINARY                           260
+  OPT_INDICES                      224
+  CURRENCIES                       209
+  COMMODITIES                      123
+  INDICES                          121
+  OPT_SHARES                       111
+  RATES                             86
+  OPT_COMMODITIES                   60
+  OPT_CURRENCIES                    18
+  SECTORS                            4
+──────────────────────────────────────────────────
+Total unique epics : 8206
+Tradeable now      : 2712

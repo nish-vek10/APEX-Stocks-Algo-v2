@@ -1,0 +1,27 @@
+# config/indicators.yaml
+# ─── APEX Indicator Configuration ──────────────────────────────────────────────
+
+ema:
+  periods: [10, 20, 50, 100, 200]
+
+bollinger_bands:
+  period: 20
+  std_dev: 2.0
+
+donchian:
+  period: 20
+
+atr:
+  period: 14
+
+volume:
+  surge_multiplier: 1.15      # Volume > 1.15x avg = surge
+  avg_window: 10              # Backtest uses 10-period volume baseline (not 20)
+
+macd:
+  fast: 12
+  slow: 26
+  signal: 9
+
+rsi:
+  period: 14

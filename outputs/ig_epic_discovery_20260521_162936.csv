@@ -1,0 +1,21 @@
+ticker,epic,method,status,instrument_name,instrument_type,error
+AAPL,UA.D.AAPL.CASH.IP,search,FOUND,Apple Inc (24 Hours),SHARES,
+MSFT,UC.D.MSFT.CASH.IP,search,FOUND,Microsoft Corp (24 Hours),SHARES,
+GOOGL,UB.D.GOOGL.CASH.IP,search,FOUND,Alphabet Inc - A (24 Hours),SHARES,
+AMZN,UA.D.AMZN.CASH.IP,search,FOUND,Amazon.com Inc (24 Hours),SHARES,
+META,,--,NOT_FOUND,,,No SHARES match via search or prefix probe
+NVDA,UC.D.NVDA.CASH.IP,search,FOUND,NVIDIA Corp (24 Hours),SHARES,
+TSLA,UD.D.TSLA.CASH.IP,search,FOUND,Tesla Motors Inc (24 Hours),SHARES,
+JPM,,--,NOT_FOUND,,,No SHARES match via search or prefix probe
+JNJ,,--,NOT_FOUND,,,No SHARES match via search or prefix probe
+V,,--,NOT_FOUND,,,No SHARES match via search or prefix probe
+UNH,,--,NOT_FOUND,,,No SHARES match via search or prefix probe
+XOM,,--,NOT_FOUND,,,No SHARES match via search or prefix probe
+WMT,,--,NOT_FOUND,,,No SHARES match via search or prefix probe
+PG,,--,NOT_FOUND,,,No SHARES match via search or prefix probe
+MA,,--,NOT_FOUND,,,No SHARES match via search or prefix probe
+HD,,--,NOT_FOUND,,,No SHARES match via search or prefix probe
+CVX,,--,NOT_FOUND,,,No SHARES match via search or prefix probe
+MRK,,--,NOT_FOUND,,,No SHARES match via search or prefix probe
+ABBV,,--,NOT_FOUND,,,No SHARES match via search or prefix probe
+PEP,,--,NOT_FOUND,,,No SHARES match via search or prefix probe
