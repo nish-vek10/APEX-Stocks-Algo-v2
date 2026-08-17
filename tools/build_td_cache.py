@@ -168,7 +168,40 @@ def sleep_for_rate_limit(last_req_time: float, batch_credits: int) -> float:
     return time.time()
 
 
-def _write_ticker(sym: str, sub: pd.DataFrame) -> str:
+def symbol_candidates(ticker: str) -> List[str]:
+    """
+    TwelveData wants dot-notation for share classes / units, not the
+    hyphenated form Finviz (and our universe) uses:
+      BF-A -> BF.A     CRD-A -> CRD.A     AAC-U -> AAC.U
+    Ported verbatim (same transform rules) from ALGO-Stocks backtest's
+    research/experiments/06C_retry_twelvedata_errors_1by1.py, which is how
+    the backtest itself resolved these exact tickers (confirmed via its
+    meta.json "queried_symbol" field) -- this is backtest-parity, not a new
+    guess. Storage/state is always keyed by the ORIGINAL ticker (e.g.
+    "BF-A"); only the outbound API query symbol changes.
+    """
+    t = ticker.strip().upper()
+    cands = [t]
+
+    if "-" in t:
+        cands.append(t.replace("-", "."))
+
+    if t.endswith("-U"):
+        cands.append(t[:-2] + ".U")
+    if t.endswith("-WS"):
+        cands.append(t[:-3] + ".WS")
+    if t.endswith("-W"):
+        cands.append(t[:-2] + ".W")
+
+    out, seen = [], set()
+    for x in cands:
+        if x and x not in seen:
+            out.append(x)
+            seen.add(x)
+    return out
+
+
+def _write_ticker(sym: str, sub: pd.DataFrame, queried_symbol: str = None) -> str:
     sub = normalize_ohlcv(sub)
     out_path = PARQUETS_DIR / f"{sym}.parquet"
     sub.to_parquet(out_path, index=False)
@@ -182,6 +215,7 @@ def _write_ticker(sym: str, sub: pd.DataFrame) -> str:
         "asof_utc": utc_now_iso(),
         "provider": "twelvedata",
         "ticker": sym,
+        "queried_symbol": queried_symbol or sym,
         "interval": INTERVAL,
         "timezone": TZ,
         "rows": rows,
@@ -194,6 +228,7 @@ def _write_ticker(sym: str, sub: pd.DataFrame) -> str:
     (META_DIR / f"{sym}.meta.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
     append_jsonl(PROGRESS_JSONL, {
         "asof_utc": utc_now_iso(), "status": status, "ticker": sym,
+        "queried_symbol": queried_symbol or sym,
         "rows": rows, "first_date": first_s, "last_date": last_s,
     })
     return status
@@ -311,27 +346,41 @@ def main() -> None:
             # end up in _errors.jsonl; good ones still get cached this run.
             print(f"[WARN] batch {i}/{len(batches)} failed: {e} -- retrying symbols individually")
             for sym in batch:
-                last_req_time = sleep_for_rate_limit(last_req_time, batch_credits=1)
-                try:
-                    ts = td.time_series(
-                        symbol=sym, interval=INTERVAL,
-                        outputsize=outputsize, timezone=TZ, order="asc",
-                    )
-                    df_sym = ts.as_pandas()
-                    last_req_time = time.time()
-                    if df_sym is None or len(df_sym) == 0:
-                        raise RuntimeError("Empty response")
-                    sub = df_sym.reset_index(drop=False)
-                    status = _write_ticker(sym, sub)
-                    processed_n += 1
-                    if status in ("ok", "ok_short_history"):
-                        ok_n += 1
-                    else:
-                        partial_n += 1
-                except Exception as e_sym:
+                success = False
+                last_exc = None
+                # Try the raw ticker first, then dot-notation variants
+                # (BF-A -> BF.A, AAC-U -> AAC.U) -- see symbol_candidates()
+                # docstring. Matches how the backtest resolved these exact
+                # tickers.
+                for sym_try in symbol_candidates(sym):
+                    last_req_time = sleep_for_rate_limit(last_req_time, batch_credits=1)
+                    try:
+                        ts = td.time_series(
+                            symbol=sym_try, interval=INTERVAL,
+                            outputsize=outputsize, timezone=TZ, order="asc",
+                        )
+                        df_sym = ts.as_pandas()
+                        last_req_time = time.time()
+                        if df_sym is None or len(df_sym) == 0:
+                            raise RuntimeError("Empty response")
+                        sub = df_sym.reset_index(drop=False)
+                        status = _write_ticker(sym, sub, queried_symbol=sym_try)
+                        processed_n += 1
+                        if status in ("ok", "ok_short_history"):
+                            ok_n += 1
+                        else:
+                            partial_n += 1
+                        success = True
+                        break
+                    except Exception as e_sym:
+                        last_exc = e_sym
+                        continue
+
+                if not success:
                     append_jsonl(ERRORS_JSONL, {
                         "asof_utc": utc_now_iso(), "ticker": sym,
-                        "batch_i": i, "error": str(e_sym),
+                        "batch_i": i, "error": str(last_exc),
+                        "candidates_tried": symbol_candidates(sym),
                     })
                     processed_n += 1
                     err_n += 1
