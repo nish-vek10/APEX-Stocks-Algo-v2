@@ -116,6 +116,17 @@ def normalize_ohlcv(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def is_cache_fresh(ticker: str) -> bool:
+    """
+    A ticker's cache is fresh if its last_date is within STALENESS_DAYS
+    TRADING days of today -- NOT calendar days. Using calendar days meant
+    every Monday run treated Friday's (perfectly current) data as stale
+    purely because of the weekend gap, forcing a needless full re-fetch of
+    the entire already-cached universe. bdate_range excludes Sat/Sun (still
+    doesn't know about market holidays -- same known limitation as
+    orchestrator._is_nyse_regular_session(), no holiday calendar wired in
+    yet; worst case on a holiday is one extra unnecessary re-fetch, not a
+    correctness issue).
+    """
     meta_path = META_DIR / f"{ticker}.meta.json"
     if not meta_path.exists():
         return False
@@ -124,8 +135,13 @@ def is_cache_fresh(ticker: str) -> bool:
         last_date = pd.to_datetime(meta.get("last_date"))
         if pd.isna(last_date):
             return False
-        age_days = (datetime.now(timezone.utc).date() - last_date.date()).days
-        return meta.get("status") in ("ok", "ok_short_history") and age_days <= STALENESS_DAYS
+        today = pd.Timestamp(datetime.now(timezone.utc).date())
+        last = pd.Timestamp(last_date.date())
+        if last >= today:
+            age_trading_days = 0
+        else:
+            age_trading_days = len(pd.bdate_range(start=last + pd.Timedelta(days=1), end=today))
+        return meta.get("status") in ("ok", "ok_short_history") and age_trading_days <= STALENESS_DAYS
     except Exception:
         return False
 
