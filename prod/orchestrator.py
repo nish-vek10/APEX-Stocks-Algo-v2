@@ -606,7 +606,34 @@ class APEXOrchestrator:
 
         ensure_symbol_selected(mt5_sym)
         tick = mt5.symbol_info_tick(mt5_sym)
-        entry_open = float(tick.ask) if tick else float(signal.get("close", 0))
+        # A tick object can exist but carry ask=0.0 (no live quote currently
+        # subscribed/streaming for this symbol, common on extended-hours
+        # "-24" variants outside their active window) -- `if tick` alone
+        # doesn't catch that. Guard on ask > 0, else fall back to the
+        # TwelveData EOD close used for the signal itself, and flag it as a
+        # stale-price entry rather than silently sizing off $0.
+        stale_price = False
+        if tick and float(tick.ask) > 0:
+            entry_open = float(tick.ask)
+        else:
+            entry_open = float(signal.get("close", 0))
+            stale_price = True
+            logger.warning(
+                "%s: no live MT5 ask for %s (tick=%s) -- using EOD close $%.2f as fallback entry price.",
+                ticker, mt5_sym, "present/zero" if tick else "none", entry_open,
+            )
+
+        if entry_open <= 0:
+            return {"success": False, "reason": "no_valid_price", "retcode": 0, "deal_id": 0}, 0.0, 0.0, 0
+
+        if stale_price:
+            # Don't attempt to place a real order against a symbol with no
+            # live MT5 quote right now -- build_entry_request would just
+            # re-fetch the same dead tick and either send a $0 price
+            # (rejected by broker) or a stale one. Skip cleanly instead;
+            # this will self-resolve once the symbol has live quotes
+            # (e.g. during its actual trading session).
+            return {"success": False, "reason": "no_live_quote", "retcode": 0, "deal_id": 0}, entry_open, 0.0, 0
 
         atr = float(signal.get("atr", 0))
         stop_cfg = self.prod_cfg.get("stop", {})
