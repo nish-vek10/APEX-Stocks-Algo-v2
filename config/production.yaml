@@ -4,7 +4,7 @@
 environment: "paper"          # "paper" | "live"  — MUST be changed to "live" for real execution
 
 # ─── Broker Selection ──────────────────────────────────────────────────────────
-broker: "ig"                  # "ig" | "mt5"  — selects execution backend
+broker: "mt5"                 # "ig" | "mt5"  — selects execution backend
 
 # ─── IG Group API Credentials ─────────────────────────────────────────────────
 # Set via .env file (see .env.example) — never hardcode here
