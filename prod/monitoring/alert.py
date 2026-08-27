@@ -22,12 +22,25 @@ from __future__ import annotations
 import json
 import logging
 import os
+import threading
+import time
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
 logger = logging.getLogger("alert")
 
 # ── Telegram client (optional) ────────────────────────────────────────────────
+
+# Telegram enforces ~1 message/second per chat (HTTP 429 above that). A run
+# that generates a burst of alerts (e.g. 13 signals + orders in one pass)
+# previously fired all sends back-to-back with no spacing, causing repeated
+# "429 Too Many Requests" drops -- meaning some alerts silently never
+# reached the group. Fixed 2026-08-27 with a minimum inter-send interval
+# plus a bounded retry-with-backoff that honors Telegram's Retry-After.
+_MIN_SEND_INTERVAL_SEC = 1.1
+_last_send_lock = threading.Lock()
+_last_send_ts = 0.0
+
 
 def _get_telegram_cfg() -> tuple[str, str] | tuple[None, None]:
     """Return (bot_token, chat_id) from env, or (None, None) if not configured."""
@@ -38,37 +51,63 @@ def _get_telegram_cfg() -> tuple[str, str] | tuple[None, None]:
     return None, None
 
 
-def _send_telegram(text: str) -> None:
+def _throttle() -> None:
+    """Block just long enough to keep sends >= _MIN_SEND_INTERVAL_SEC apart."""
+    global _last_send_ts
+    with _last_send_lock:
+        wait = _MIN_SEND_INTERVAL_SEC - (time.monotonic() - _last_send_ts)
+        if wait > 0:
+            time.sleep(wait)
+        _last_send_ts = time.monotonic()
+
+
+def _send_telegram(text: str, max_retries: int = 3) -> None:
     """
     Fire-and-forget Telegram message. Fails silently — never crashes the main loop.
     Uses stdlib urllib only (no requests dependency required).
+
+    Rate-limited to <= 1 send/sec and retries on HTTP 429 honoring the
+    Retry-After header (falls back to exponential backoff if absent).
     """
     token, chat_id = _get_telegram_cfg()
     if not token:
         return  # Telegram not configured — skip silently
 
-    try:
-        import urllib.request
-        import urllib.parse
+    import urllib.error
+    import urllib.request
 
-        url = f"https://api.telegram.org/bot{token}/sendMessage"
-        payload = json.dumps({
-            "chat_id": chat_id,
-            "text": text,
-            "parse_mode": "HTML",
-        }).encode("utf-8")
+    url = f"https://api.telegram.org/bot{token}/sendMessage"
+    payload = json.dumps({
+        "chat_id": chat_id,
+        "text": text,
+        "parse_mode": "HTML",
+    }).encode("utf-8")
 
-        req = urllib.request.Request(
-            url,
-            data=payload,
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            if resp.status != 200:
-                logger.warning(f"Telegram send failed: HTTP {resp.status}")
-    except Exception as exc:
-        logger.warning(f"Telegram send error (non-fatal): {exc}")
+    for attempt in range(max_retries + 1):
+        _throttle()
+        try:
+            req = urllib.request.Request(
+                url,
+                data=payload,
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                if resp.status != 200:
+                    logger.warning(f"Telegram send failed: HTTP {resp.status}")
+                return
+        except urllib.error.HTTPError as exc:
+            if exc.code == 429 and attempt < max_retries:
+                retry_after = exc.headers.get("Retry-After")
+                delay = float(retry_after) if retry_after else (2 ** attempt)
+                logger.warning(f"Telegram 429 -- retrying in {delay:.1f}s (attempt {attempt + 1}/{max_retries})")
+                time.sleep(delay)
+                continue
+            logger.warning(f"Telegram send error (non-fatal): {exc}")
+            return
+        except Exception as exc:
+            logger.warning(f"Telegram send error (non-fatal): {exc}")
+            return
 
 
 # ── Core dispatcher ───────────────────────────────────────────────────────────

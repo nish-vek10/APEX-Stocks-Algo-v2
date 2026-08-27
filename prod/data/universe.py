@@ -17,16 +17,26 @@ def build_symbol_map(
     """
     symbols = symbol_map_cfg.get("symbols", {})
     result: Dict[str, str] = {}
+    unmapped: List[str] = []
 
     for ticker in tickers:
         mt5_sym = symbols.get(ticker, "")
         if not mt5_sym:
-            logger.warning(
-                f"Ticker '{ticker}' has no MT5 symbol mapping in config/mt5_symbol_map.yaml. "
-                "Run tools/mt5_symbol_inspector.py to discover correct symbol names."
-            )
+            unmapped.append(ticker)
         else:
             result[ticker] = mt5_sym
+
+    # Collapsed to one summary line -- previously logged one WARNING per
+    # unmapped ticker (300-500+ lines every run for the scan-only universe
+    # tail, drowning out real signal/execution log lines). These tickers
+    # are signal-only by design (no IC Markets symbol available); this is
+    # expected, not an error. Full list still available at DEBUG level.
+    if unmapped:
+        logger.info(
+            f"{len(unmapped)}/{len(tickers)} tickers have no MT5 symbol mapping "
+            f"(signal-only, no execution) -- run tools/mt5_symbol_inspector.py for details."
+        )
+        logger.debug(f"Unmapped tickers: {unmapped}")
 
     return result
 

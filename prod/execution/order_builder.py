@@ -25,6 +25,27 @@ FILL_NAME_MAP = {
 }
 
 
+def ensure_symbol_selected(mt5_symbol: str) -> bool:
+    """
+    Make sure `mt5_symbol` is visible in Market Watch before requesting a
+    tick or symbol_info-dependent value from it.
+
+    IC Markets (and MT5 generally) will return `symbol_info_tick() is None`
+    for any symbol not currently added to Market Watch -- this is NOT the
+    same as "symbol doesn't exist" and previously crashed live execution
+    (e.g. BTU.NYSE-24: "No tick data for symbol") purely because the
+    symbol had never been selected in this terminal session. Calling
+    mt5.symbol_select(symbol, True) is idempotent and safe to call every
+    time. Returns True if the symbol is (now) selected/visible.
+    """
+    if not MT5_AVAILABLE:
+        return False
+    info = mt5.symbol_info(mt5_symbol)
+    if info is not None and info.visible:
+        return True
+    return bool(mt5.symbol_select(mt5_symbol, True))
+
+
 def resolve_filling_mode(
     mt5_symbol: str,
     symbol_map_cfg: Dict[str, Any],
@@ -82,6 +103,7 @@ def resolve_mt5_volume(
     stop_distance: float,
     risk_dollars_target: float,
     deviation_warn_pct: float = 0.15,
+    deviation_max_pct: float = 0.30,
 ) -> Dict[str, Any]:
     """
     Convert a broker-agnostic "shares" figure (from prod/risk/position_sizer.py,
@@ -114,6 +136,7 @@ def resolve_mt5_volume(
     if not MT5_AVAILABLE:
         raise RuntimeError("MetaTrader5 not installed.")
 
+    ensure_symbol_selected(mt5_symbol)
     info = mt5.symbol_info(mt5_symbol)
     if info is None:
         return {"ok": False, "reason": "no_symbol_info", "volume": 0.0}
@@ -145,6 +168,29 @@ def resolve_mt5_volume(
         abs(actual_risk_dollars - risk_dollars_target) / risk_dollars_target
         if risk_dollars_target > 0 else 0.0
     )
+
+    if deviation_pct > deviation_max_pct:
+        # Hard skip: lot granularity is too coarse for this symbol to
+        # reasonably approximate the 1% risk target (e.g. volume_step=1000
+        # on a low-priced CFD forces risk to swing by tens of percent per
+        # step). Previously this only logged a WARNING and the trade still
+        # executed with realized risk up to ~85% away from target -- a real
+        # risk-sizing breach. Now the trade is skipped and alerted like any
+        # other rejected order (see orchestrator.py's alert_order_rejected
+        # call on result["success"]=False).
+        logger.warning(
+            f"{mt5_symbol}: SKIPPED -- MT5 lot-step rounding would move "
+            f"realized risk {deviation_pct*100:.1f}% away from 1% target "
+            f"(target=${risk_dollars_target:.2f}, actual=${actual_risk_dollars:.2f}, "
+            f"volume={volume}, contract_size={contract_size}, "
+            f"max_allowed={deviation_max_pct*100:.0f}%)."
+        )
+        return {
+            "ok": False, "reason": "risk_deviation_too_high", "volume": 0.0,
+            "deviation_pct": round(deviation_pct, 4),
+            "target_risk_dollars": round(risk_dollars_target, 2),
+            "actual_risk_dollars": round(actual_risk_dollars, 2),
+        }
 
     if deviation_pct > deviation_warn_pct:
         logger.warning(
@@ -202,9 +248,10 @@ def build_entry_request(
     if not MT5_AVAILABLE:
         raise RuntimeError("MetaTrader5 not installed.")
 
+    ensure_symbol_selected(mt5_symbol)
     tick = mt5.symbol_info_tick(mt5_symbol)
     if tick is None:
-        raise ValueError(f"No tick data for symbol: {mt5_symbol}")
+        raise ValueError(f"No tick data for symbol: {mt5_symbol} (not in Market Watch / no quotes)")
 
     price = tick.ask
     filling = resolve_filling_mode(mt5_symbol, symbol_map_cfg)
@@ -242,9 +289,10 @@ def build_close_request(
     if not MT5_AVAILABLE:
         raise RuntimeError("MetaTrader5 not installed.")
 
+    ensure_symbol_selected(mt5_symbol)
     tick = mt5.symbol_info_tick(mt5_symbol)
     if tick is None:
-        raise ValueError(f"No tick data for symbol: {mt5_symbol}")
+        raise ValueError(f"No tick data for symbol: {mt5_symbol} (not in Market Watch / no quotes)")
 
     # Closing a buy = sell at bid
     close_type = mt5.ORDER_TYPE_SELL if position_type == mt5.ORDER_TYPE_BUY else mt5.ORDER_TYPE_BUY

@@ -600,10 +600,11 @@ class APEXOrchestrator:
         equity: float,
         gate_result: Dict[str, Any],
     ) -> Tuple[Dict[str, Any], float, float, float]:
-        from prod.execution.order_builder import build_entry_request, resolve_mt5_volume
+        from prod.execution.order_builder import build_entry_request, resolve_mt5_volume, ensure_symbol_selected
         from prod.execution.order_executor import send_order
         import MetaTrader5 as mt5
 
+        ensure_symbol_selected(mt5_sym)
         tick = mt5.symbol_info_tick(mt5_sym)
         entry_open = float(tick.ask) if tick else float(signal.get("close", 0))
 
@@ -631,9 +632,12 @@ class APEXOrchestrator:
         # THIS symbol's actual contract_size/volume_step/volume_min -- see
         # resolve_mt5_volume() docstring for why this matters for 1% risk
         # accuracy.
+        exec_cfg = self.prod_cfg.get("execution", {})
         vol = resolve_mt5_volume(
             mt5_sym, target_shares,
             sizing["stop_distance"], sizing["risk_dollars"],
+            deviation_warn_pct=float(exec_cfg.get("risk_deviation_warn_pct", 0.15)),
+            deviation_max_pct=float(exec_cfg.get("risk_deviation_max_pct", 0.30)),
         )
         if not vol["ok"]:
             logger.info("%s: MT5 volume resolution failed (%s) -- skip.", ticker, vol["reason"])

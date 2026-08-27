@@ -2965,6 +2965,18 @@ stop:
   atr_period: 14              # Wilder's 14-period ATR
   floor_pct: 0.005            # Min stop distance = 0.5% of entry
 
+# ─── Execution / Risk-Sizing Tolerance ─────────────────────────────────────────
+# MT5 lot granularity (volume_step/contract_size) means realized risk per
+# trade can never land exactly on the 1% target -- this defines how much
+# drift is tolerated before a trade is skipped outright rather than sent
+# with badly-mismatched risk. Found 2026-08-27: several symbols (GO.NAS,
+# OCUL.NAS, VFF.NAS-24) rounded 40-85% away from target and were still
+# being executed with only a log WARNING. Now anything over
+# risk_deviation_max_pct is skipped + alerted like any other rejected order.
+execution:
+  risk_deviation_warn_pct: 0.15   # log a warning above this drift
+  risk_deviation_max_pct: 0.30    # skip the trade entirely above this drift
+
 portfolio:
   max_open_positions: 100
   max_sector_concentration: 0.35
