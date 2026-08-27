@@ -2,10 +2,22 @@
 """
 APEX Cloud Scheduler — Railway deployment entry point.
 
-Runs two jobs on a Mon-Fri schedule, anchored to NYSE local time
+Runs three jobs on a Mon-Fri schedule, anchored to NYSE local time
 (America/New_York), NOT a fixed UTC offset:
+  16:45 ET  -> python tools/build_td_cache.py       (refresh TwelveData cache)
   17:05 ET  -> python run_prod.py --mode signals    (after 16:00 ET close)
   09:31 ET  -> python run_prod.py --mode execution  (after 09:30 ET open)
+
+The cache-refresh job is REQUIRED, not cosmetic: signal generation reads
+exclusively from the local TwelveData parquet cache (prod/orchestrator.py's
+_fetch_data_mt5 -> fetch_universe_from_cache), never a live pull. Without a
+daily refresh, the cache silently goes stale and signals keep firing off
+whatever date it was last built (found 2026-08-27: a manual test run
+produced signals dated 2026-08-14/08-17 -- 10-13 days old -- because the
+cache hadn't been touched since the initial build). build_td_cache.py is
+safe to run every day: is_cache_fresh() skips any ticker already current,
+so a normal day only re-fetches the handful that genuinely need it and
+exits in seconds, not the ~6hr full-universe cold-start time.
 
 Using an America/New_York cron trigger (not UTC) means these times
 auto-adjust across DST transitions with zero code changes -- APScheduler
@@ -62,6 +74,8 @@ RETRY_DELAY    = int(os.environ.get("APEX_RETRY_DELAY_SEC", 300))   # 5 min betw
 # so these fire at the same NYSE-local clock time year-round regardless of
 # US or UK daylight saving state.
 SCHED_TZ       = "America/New_York"
+CACHE_HOUR     = int(os.environ.get("APEX_CACHE_HOUR", 16))    # 16:45 ET, before signals
+CACHE_MIN      = int(os.environ.get("APEX_CACHE_MIN", 45))
 SIGNAL_HOUR    = int(os.environ.get("APEX_SIGNAL_HOUR", 17))   # 17:05 ET, after 16:00 ET close
 SIGNAL_MIN     = int(os.environ.get("APEX_SIGNAL_MIN", 5))
 EXEC_HOUR      = int(os.environ.get("APEX_EXEC_HOUR", 9))      # 09:31 ET, after 09:30 ET open
@@ -70,9 +84,10 @@ EXEC_MIN       = int(os.environ.get("APEX_EXEC_MIN", 31))
 
 # ── Job runner with retry ─────────────────────────────────────────────────────
 
-def run_mode(mode: str) -> None:
+def run_script(mode: str, argv: list[str]) -> None:
     """
-    Run run_prod.py --mode <mode> with retry logic.
+    Run `python <argv>` with retry logic (shared by cache-refresh, signals,
+    execution). `mode` is just a label used for logging/alerts.
     Sends Telegram alert on success and on all-retries-exhausted failure.
     """
     ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
@@ -82,7 +97,7 @@ def run_mode(mode: str) -> None:
         logger.info("mode=%s attempt=%d/%d", mode, attempt, MAX_RETRIES)
 
         result = subprocess.run(
-            [sys.executable, str(ROOT / "run_prod.py"), "--mode", mode],
+            [sys.executable, *argv],
             capture_output=True,
             text=True,
             cwd=str(ROOT),
@@ -141,12 +156,16 @@ def run_mode(mode: str) -> None:
     )
 
 
+def job_cache_refresh() -> None:
+    run_script("cache_refresh", [str(ROOT / "tools" / "build_td_cache.py")])
+
+
 def job_signals() -> None:
-    run_mode("signals")
+    run_script("signals", [str(ROOT / "run_prod.py"), "--mode", "signals"])
 
 
 def job_execution() -> None:
-    run_mode("execution")
+    run_script("execution", [str(ROOT / "run_prod.py"), "--mode", "execution"])
 
 
 # ── APScheduler event hooks ───────────────────────────────────────────────────
@@ -160,9 +179,9 @@ def on_job_event(event) -> None:
 
 def main() -> None:
     logger.info(
-        "APEX Scheduler starting | signals=%02d:%02d ET | execution=%02d:%02d ET | "
+        "APEX Scheduler starting | cache=%02d:%02d ET | signals=%02d:%02d ET | execution=%02d:%02d ET | "
         "retries=%d | retry_delay=%ds | days=Mon-Fri | tz=%s (auto DST)",
-        SIGNAL_HOUR, SIGNAL_MIN, EXEC_HOUR, EXEC_MIN, MAX_RETRIES, RETRY_DELAY, SCHED_TZ,
+        CACHE_HOUR, CACHE_MIN, SIGNAL_HOUR, SIGNAL_MIN, EXEC_HOUR, EXEC_MIN, MAX_RETRIES, RETRY_DELAY, SCHED_TZ,
     )
 
     send_alert(
@@ -171,6 +190,7 @@ def main() -> None:
         telegram_text=(
             f"🕐 <b>APEX SCHEDULER STARTED</b>\n"
             f"──────────────────────\n"
+            f"Cache refresh: {CACHE_HOUR:02d}:{CACHE_MIN:02d} ET (Mon-Fri)\n"
             f"Signals:   {SIGNAL_HOUR:02d}:{SIGNAL_MIN:02d} ET (Mon-Fri)\n"
             f"Execution: {EXEC_HOUR:02d}:{EXEC_MIN:02d} ET (Mon-Fri)\n"
             f"Retries:   {MAX_RETRIES} × {RETRY_DELAY // 60}min gap\n"
@@ -181,6 +201,21 @@ def main() -> None:
 
     scheduler = BlockingScheduler(timezone=SCHED_TZ)
     scheduler.add_listener(on_job_event, EVENT_JOB_ERROR)
+
+    # Daily TwelveData cache refresh — MUST run before signals, otherwise
+    # signal generation silently reads stale cached bars (see module
+    # docstring). is_cache_fresh() makes this a fast no-op on normal days.
+    scheduler.add_job(
+        job_cache_refresh,
+        trigger="cron",
+        day_of_week="mon-fri",
+        hour=CACHE_HOUR,
+        minute=CACHE_MIN,
+        id="apex_cache_refresh",
+        name="APEX TwelveData Cache Refresh",
+        misfire_grace_time=1800,
+        coalesce=True,
+    )
 
     # EOD signals — after US market close
     scheduler.add_job(
