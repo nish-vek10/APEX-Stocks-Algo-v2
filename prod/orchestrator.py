@@ -176,13 +176,33 @@ class APEXOrchestrator:
         else:
             universe_data = self._fetch_data_mt5("D1", lookback)
 
-        signals = self.signal_gen.generate_all(universe_data)
+        raw_signals = self.signal_gen.generate_all(universe_data)
+
+        # Drop any (ticker, signal_date) already fired in a previous run --
+        # generate() has no memory of its own and will re-detect the same
+        # transition every time it's pointed at an unchanged cache (see
+        # StateManager.has_fired_signal() docstring). Without this, a
+        # scheduler retry/misfire or a manual re-run replays the exact
+        # same entries.
+        signals = []
+        skipped_dupes = []
+        for s in raw_signals:
+            if self.state_mgr.has_fired_signal(s["ticker"], str(s["signal_date"])[:10]):
+                skipped_dupes.append(s["ticker"])
+                continue
+            signals.append(s)
+        if skipped_dupes:
+            logger.info(
+                "Skipped %d already-fired signal(s) (unchanged cache since last run): %s",
+                len(skipped_dupes), skipped_dupes,
+            )
 
         for s in signals:
             self.run_logger.log_signal(s)
             alert_signal_found(s["ticker"], s["stage"], str(s["signal_date"]), s.get("stage_name", ""))
 
         self.state_mgr.set_pending_signals(signals)
+        self.state_mgr.record_fired_signals(signals)
 
         # Stage 9 (In-Zone Fading) exit check for currently-open positions --
         # matches backtest exactly: "signal observed at EOD close, exit sent
