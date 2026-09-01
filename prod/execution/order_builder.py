@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 import math
+import time
 from typing import Any, Dict, Optional
 
 logger = logging.getLogger("order_builder")
@@ -44,6 +45,33 @@ def ensure_symbol_selected(mt5_symbol: str) -> bool:
     if info is not None and info.visible:
         return True
     return bool(mt5.symbol_select(mt5_symbol, True))
+
+
+def get_live_tick(mt5_symbol: str, retries: int = 3, delay_sec: float = 0.5) -> Optional[Any]:
+    """
+    Select `mt5_symbol` and fetch a tick with ask > 0, retrying briefly.
+
+    A symbol freshly added to Market Watch this session (common for the
+    "-24" extended-hours variants, which most of the universe's execution
+    symbols are) can return a tick object with ask=0.0/bid=0.0 for the
+    first fraction of a second while the broker's quote stream warms up --
+    this is NOT the same as "no quotes available at all". Found
+    2026-09-01: 7 of 21 successful signals that day (APAM, BRCB, GPOR, LDP,
+    MSB, PATH, VTS -- ALL "-24" symbols) were rejected as no_live_quote on
+    the very first tick check with no retry. Returns the tick object (with
+    ask/bid > 0) on success, or None if still no valid quote after
+    `retries` attempts.
+    """
+    if not MT5_AVAILABLE:
+        return None
+    ensure_symbol_selected(mt5_symbol)
+    for attempt in range(retries):
+        tick = mt5.symbol_info_tick(mt5_symbol)
+        if tick is not None and float(tick.ask) > 0:
+            return tick
+        if attempt < retries - 1:
+            time.sleep(delay_sec)
+    return None
 
 
 def resolve_filling_mode(
@@ -248,10 +276,9 @@ def build_entry_request(
     if not MT5_AVAILABLE:
         raise RuntimeError("MetaTrader5 not installed.")
 
-    ensure_symbol_selected(mt5_symbol)
-    tick = mt5.symbol_info_tick(mt5_symbol)
+    tick = get_live_tick(mt5_symbol)
     if tick is None:
-        raise ValueError(f"No tick data for symbol: {mt5_symbol} (not in Market Watch / no quotes)")
+        raise ValueError(f"No tick data for symbol: {mt5_symbol} (not in Market Watch / no live quote after retries)")
 
     price = tick.ask
     filling = resolve_filling_mode(mt5_symbol, symbol_map_cfg)
@@ -289,10 +316,9 @@ def build_close_request(
     if not MT5_AVAILABLE:
         raise RuntimeError("MetaTrader5 not installed.")
 
-    ensure_symbol_selected(mt5_symbol)
-    tick = mt5.symbol_info_tick(mt5_symbol)
+    tick = get_live_tick(mt5_symbol)
     if tick is None:
-        raise ValueError(f"No tick data for symbol: {mt5_symbol} (not in Market Watch / no quotes)")
+        raise ValueError(f"No tick data for symbol: {mt5_symbol} (not in Market Watch / no live quote after retries)")
 
     # Closing a buy = sell at bid
     close_type = mt5.ORDER_TYPE_SELL if position_type == mt5.ORDER_TYPE_BUY else mt5.ORDER_TYPE_BUY

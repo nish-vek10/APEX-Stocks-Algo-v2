@@ -31,13 +31,18 @@ logger = logging.getLogger("alert")
 
 # ── Telegram client (optional) ────────────────────────────────────────────────
 
-# Telegram enforces ~1 message/second per chat (HTTP 429 above that). A run
-# that generates a burst of alerts (e.g. 13 signals + orders in one pass)
-# previously fired all sends back-to-back with no spacing, causing repeated
-# "429 Too Many Requests" drops -- meaning some alerts silently never
-# reached the group. Fixed 2026-08-27 with a minimum inter-send interval
-# plus a bounded retry-with-backoff that honors Telegram's Retry-After.
-_MIN_SEND_INTERVAL_SEC = 1.1
+# Telegram enforces ~1 message/second for 1:1 chats, but GROUP chats are
+# capped tighter (~20 messages/minute observed in practice -- confirmed
+# 2026-09-01 when a 1.1s spacing, ~54/min, still hit HTTP 429 with a 38s
+# Retry-After during a large post-catch-up signal burst). A run that
+# generates a burst of alerts (e.g. 13+ signals + orders in one pass)
+# previously fired all sends back-to-back with no spacing at all, causing
+# repeated "429 Too Many Requests" drops -- meaning some alerts silently
+# never reached the group. Fixed 2026-08-27 with a minimum inter-send
+# interval, tightened 2026-09-01 to match the group-level limit, plus a
+# bounded retry-with-backoff that honors Telegram's Retry-After for
+# whatever slips through anyway.
+_MIN_SEND_INTERVAL_SEC = 3.1
 _last_send_lock = threading.Lock()
 _last_send_ts = 0.0
 

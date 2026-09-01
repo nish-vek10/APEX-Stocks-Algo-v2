@@ -600,27 +600,27 @@ class APEXOrchestrator:
         equity: float,
         gate_result: Dict[str, Any],
     ) -> Tuple[Dict[str, Any], float, float, float]:
-        from prod.execution.order_builder import build_entry_request, resolve_mt5_volume, ensure_symbol_selected
+        from prod.execution.order_builder import build_entry_request, resolve_mt5_volume, get_live_tick
         from prod.execution.order_executor import send_order
         import MetaTrader5 as mt5
 
-        ensure_symbol_selected(mt5_sym)
-        tick = mt5.symbol_info_tick(mt5_sym)
-        # A tick object can exist but carry ask=0.0 (no live quote currently
-        # subscribed/streaming for this symbol, common on extended-hours
-        # "-24" variants outside their active window) -- `if tick` alone
-        # doesn't catch that. Guard on ask > 0, else fall back to the
-        # TwelveData EOD close used for the signal itself, and flag it as a
-        # stale-price entry rather than silently sizing off $0.
-        stale_price = False
-        if tick and float(tick.ask) > 0:
+        # get_live_tick() selects the symbol AND retries briefly (up to
+        # ~1.5s) if the first tick comes back with ask=0.0 -- a freshly
+        # selected "-24" extended-hours symbol's quote stream can take a
+        # moment to warm up, and a single immediate check was wrongly
+        # treating that as "no quote at all" (found 2026-09-01: 7/21
+        # successful signals that day were false-rejected this way, all
+        # "-24" symbols). Only fall back to the EOD close -- and flag the
+        # entry as stale -- if still no live ask after retrying.
+        tick = get_live_tick(mt5_sym)
+        stale_price = tick is None
+        if tick is not None:
             entry_open = float(tick.ask)
         else:
             entry_open = float(signal.get("close", 0))
-            stale_price = True
             logger.warning(
-                "%s: no live MT5 ask for %s (tick=%s) -- using EOD close $%.2f as fallback entry price.",
-                ticker, mt5_sym, "present/zero" if tick else "none", entry_open,
+                "%s: no live MT5 ask for %s after retries -- using EOD close $%.2f as fallback entry price.",
+                ticker, mt5_sym, entry_open,
             )
 
         if entry_open <= 0:
