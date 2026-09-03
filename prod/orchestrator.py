@@ -279,8 +279,20 @@ class APEXOrchestrator:
             # fires at 09:31 ET) -- catches misfires (e.g. a missed-run
             # catch-up after a server restart firing hours late).
             if not self._is_nyse_regular_session():
-                logger.warning("Outside NYSE regular hours (09:30-16:00 ET, Mon-Fri) -- no new entries this run.")
-                self.state_mgr.clear_pending_signals()
+                # Do NOT clear pending_signals here -- this guard fires
+                # whenever run_execution() is invoked outside 09:30-16:00 ET
+                # (e.g. testing --mode full mid-afternoon, or a scheduler
+                # misfire recovering late). The signals are still valid for
+                # "next AM open" and must survive until an execution run
+                # actually happens during market hours. Found 2026-09-03:
+                # this branch was wiping the day's entire signal queue,
+                # meaning tomorrow's real 09:31 ET execution run would find
+                # nothing queued and silently execute zero orders.
+                logger.warning(
+                    "Outside NYSE regular hours (09:30-16:00 ET, Mon-Fri) -- "
+                    "no new entries this run. %d signal(s) remain queued for next execution run.",
+                    len(self.state_mgr.get_pending_signals()),
+                )
                 return
 
             # Portfolio cap check
