@@ -245,7 +245,13 @@ def main() -> None:
 
     logger.info("Scheduler running. Next jobs:")
     for job in scheduler.get_jobs():
-        logger.info("  %s -> next: %s", job.name, job.next_run_time)
+        # job.next_run_time only exists on APScheduler 3.x's Job class --
+        # some environments have picked up a newer/older APScheduler build
+        # (requirements.txt pins "apscheduler>=3.10.0" with no upper bound)
+        # where this attribute doesn't exist. This is purely a startup log
+        # line, not functional -- never let it crash the scheduler.
+        next_run = getattr(job, "next_run_time", None)
+        logger.info("  %s -> next: %s", job.name, next_run if next_run is not None else "(unknown -- non-fatal)")
 
     try:
         scheduler.start()

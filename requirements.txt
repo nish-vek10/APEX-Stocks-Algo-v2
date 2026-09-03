@@ -8,7 +8,7 @@ requests>=2.31.0
 python-dotenv>=1.0.0
 schedule>=1.2.0
 pytz>=2023.3
-apscheduler>=3.10.0
+apscheduler>=3.10.0,<4.0.0   # v4 is a ground-up rewrite (different Job/Scheduler API) -- scheduler.py targets 3.x
 
 # IG Group execution (primary broker)
 trading_ig>=0.0.11
