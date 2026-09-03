@@ -364,6 +364,13 @@ class APEXOrchestrator:
                         self.run_logger.log_position_open(
                             ticker, fill_price, stop_price, shares,
                         )
+                        entry_ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+                        print(
+                            f"[FILLED] {ticker} ({broker_sym}) | time={entry_ts} | "
+                            f"entry=${fill_price:.4f} | lot={result.get('mt5_volume', 'n/a')} | "
+                            f"shares={shares:.0f} | sl=${stop_price:.4f} | "
+                            f"risk=${risk_dollars:.2f} | order_id={order_id}"
+                        )
                         executed += 1
                     else:
                         fail_reason = result.get("reason") or result.get("comment") or result.get("retcode")

@@ -47,10 +47,46 @@ class MT5Connector:
             raise ConnectionError(f"MT5 login failed: {mt5.last_error()}")
 
         info = mt5.account_info()
-        logger.info(
-            f"MT5 connected — account={info.login}, "
-            f"server={info.server}, equity={info.equity:.2f}"
+        term = mt5.terminal_info()
+
+        # Two separate "is algo trading actually allowed" gates, both
+        # required for order_send() to work at all -- surfaced explicitly
+        # so a misconfigured terminal (AutoTrading button off) or a
+        # broker-side EA restriction is caught HERE, at startup, not as a
+        # confusing order rejection hours later.
+        terminal_algo_ok = bool(term.trade_allowed) if term else False
+        account_algo_ok = bool(getattr(info, "trade_expert", True))
+        account_trading_ok = bool(getattr(info, "trade_allowed", True))
+        all_ok = terminal_algo_ok and account_algo_ok and account_trading_ok
+
+        banner = (
+            f"\n{'='*60}\n"
+            f"MT5 CONNECTED\n"
+            f"{'='*60}\n"
+            f"  Account:        {info.login}\n"
+            f"  Server:         {info.server}\n"
+            f"  Company:        {getattr(term, 'company', 'n/a')}\n"
+            f"  Currency:       {info.currency}\n"
+            f"  Leverage:       1:{info.leverage}\n"
+            f"  Balance:        {info.balance:,.2f}\n"
+            f"  Equity:         {info.equity:,.2f}\n"
+            f"  Trading mode:   {'DEMO' if getattr(info, 'trade_mode', 0) == 0 else 'LIVE/CONTEST'}\n"
+            f"  AutoTrading (terminal):  {'ENABLED' if terminal_algo_ok else '*** DISABLED -- click AutoTrading button in MT5 ***'}\n"
+            f"  Algo trading (account):  {'ALLOWED' if account_algo_ok else '*** BLOCKED BY BROKER ***'}\n"
+            f"  Trading (account):       {'ALLOWED' if account_trading_ok else '*** BLOCKED (read-only account?) ***'}\n"
+            f"  Overall status: {'READY TO TRADE' if all_ok else '*** NOT READY -- SEE ABOVE ***'}\n"
+            f"{'='*60}"
         )
+        # print() as well as logger.info() -- this is safety-critical
+        # startup visibility (is the account actually able to place
+        # orders right now), so it must never depend on logging
+        # configuration being correct to be seen.
+        print(banner)
+        logger.info(banner)
+
+        if not all_ok:
+            logger.warning("MT5 connected but NOT ready to trade -- see banner above for which gate is blocking.")
+
         self._connected = True
 
     def disconnect(self) -> None:

@@ -80,6 +80,7 @@ SIGNAL_HOUR    = int(os.environ.get("APEX_SIGNAL_HOUR", 17))   # 17:05 ET, after
 SIGNAL_MIN     = int(os.environ.get("APEX_SIGNAL_MIN", 5))
 EXEC_HOUR      = int(os.environ.get("APEX_EXEC_HOUR", 9))      # 09:31 ET, after 09:30 ET open
 EXEC_MIN       = int(os.environ.get("APEX_EXEC_MIN", 31))
+HEARTBEAT_MIN  = int(os.environ.get("APEX_HEARTBEAT_MIN", 10))
 
 
 # ── Job runner with retry ─────────────────────────────────────────────────────
@@ -168,6 +169,28 @@ def job_execution() -> None:
     run_script("execution", [str(ROOT / "run_prod.py"), "--mode", "execution"])
 
 
+_scheduler_ref: BlockingScheduler | None = None
+
+
+def job_heartbeat() -> None:
+    """
+    Prints every HEARTBEAT_MIN minutes so it's visible at a glance in the
+    PowerShell window that the process is still alive and hasn't silently
+    died -- distinct from the job-specific logging, this fires
+    independently of whether cache/signals/execution jobs have run yet.
+    """
+    now_et = datetime.now(timezone.utc).astimezone()
+    line = f"[HEARTBEAT] {now_et.strftime('%Y-%m-%d %H:%M:%S %Z')} -- scheduler alive."
+    if _scheduler_ref is not None:
+        for job in _scheduler_ref.get_jobs():
+            if job.id == "apex_heartbeat":
+                continue
+            next_run = getattr(job, "next_run_time", None)
+            line += f"\n  {job.name} -> next: {next_run if next_run is not None else 'unknown'}"
+    print(line)
+    logger.info(line)
+
+
 # ── APScheduler event hooks ───────────────────────────────────────────────────
 
 def on_job_event(event) -> None:
@@ -242,6 +265,20 @@ def main() -> None:
         misfire_grace_time=1800,
         coalesce=True,
     )
+
+    # Heartbeat -- prints/logs every HEARTBEAT_MIN minutes so it's obvious
+    # at a glance the process hasn't silently died, independent of whether
+    # any of the actual trading jobs have fired yet.
+    scheduler.add_job(
+        job_heartbeat,
+        trigger="interval",
+        minutes=HEARTBEAT_MIN,
+        id="apex_heartbeat",
+        name="APEX Heartbeat",
+    )
+
+    global _scheduler_ref
+    _scheduler_ref = scheduler
 
     logger.info("Scheduler running. Next jobs:")
     for job in scheduler.get_jobs():
