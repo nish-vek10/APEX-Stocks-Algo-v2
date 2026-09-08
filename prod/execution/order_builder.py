@@ -197,29 +197,20 @@ def resolve_mt5_volume(
         if risk_dollars_target > 0 else 0.0
     )
 
-    if deviation_pct > deviation_max_pct:
-        # Hard skip: lot granularity is too coarse for this symbol to
-        # reasonably approximate the 1% risk target (e.g. volume_step=1000
-        # on a low-priced CFD forces risk to swing by tens of percent per
-        # step). Previously this only logged a WARNING and the trade still
-        # executed with realized risk up to ~85% away from target -- a real
-        # risk-sizing breach. Now the trade is skipped and alerted like any
-        # other rejected order (see orchestrator.py's alert_order_rejected
-        # call on result["success"]=False).
-        logger.warning(
-            f"{mt5_symbol}: SKIPPED -- MT5 lot-step rounding would move "
-            f"realized risk {deviation_pct*100:.1f}% away from 1% target "
-            f"(target=${risk_dollars_target:.2f}, actual=${actual_risk_dollars:.2f}, "
-            f"volume={volume}, contract_size={contract_size}, "
-            f"max_allowed={deviation_max_pct*100:.0f}%)."
-        )
-        return {
-            "ok": False, "reason": "risk_deviation_too_high", "volume": 0.0,
-            "deviation_pct": round(deviation_pct, 4),
-            "target_risk_dollars": round(risk_dollars_target, 2),
-            "actual_risk_dollars": round(actual_risk_dollars, 2),
-        }
-
+    # NOTE on deviation_max_pct: intentionally NOT a hard skip. `volume`
+    # above is always FLOORED to the nearest volume_step, never rounded up
+    # (see the math.floor() call), which means actual_risk_dollars can
+    # only ever be <= risk_dollars_target -- "deviation" here is always an
+    # UNDER-shoot, never an overshoot. A hard skip on large deviation was
+    # briefly added (2026-09-03) reasoning it protected against excess
+    # risk, but that protection was already structurally guaranteed by the
+    # floor; the skip was actually just discarding smaller, strictly-safer
+    # positions -- disproportionately on cheap/volatile tickers, exactly
+    # where a smaller-than-ideal position still captures real upside.
+    # Reverted 2026-09-08 per explicit direction: take the largest valid
+    # lot at the same stop and accept reduced (never excess) risk instead
+    # of skipping the trade entirely. deviation_max_pct kept as a
+    # parameter (unused below) only so callers don't need updating.
     if deviation_pct > deviation_warn_pct:
         logger.warning(
             f"{mt5_symbol}: MT5 lot-step rounding moved realized risk "

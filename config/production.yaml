@@ -2967,15 +2967,21 @@ stop:
 
 # ─── Execution / Risk-Sizing Tolerance ─────────────────────────────────────────
 # MT5 lot granularity (volume_step/contract_size) means realized risk per
-# trade can never land exactly on the 1% target -- this defines how much
-# drift is tolerated before a trade is skipped outright rather than sent
-# with badly-mismatched risk. Found 2026-08-27: several symbols (GO.NAS,
-# OCUL.NAS, VFF.NAS-24) rounded 40-85% away from target and were still
-# being executed with only a log WARNING. Now anything over
-# risk_deviation_max_pct is skipped + alerted like any other rejected order.
+# trade can never land exactly on the 1% target. `resolve_mt5_volume()`
+# always FLOORS to the nearest valid lot step, never rounds up, so realized
+# risk can only ever be <= the 1% target -- never above it. That means
+# large "deviation" is always an UNDER-shoot (a smaller, strictly-safer
+# position), never an excess-risk situation. risk_deviation_max_pct was
+# briefly used as a hard skip (2026-08-27 to 2026-09-08) reasoning it
+# protected against excess risk, but that protection was already
+# guaranteed by the floor -- the skip was just discarding smaller
+# positions on cheap/volatile tickers, exactly where reduced-but-nonzero
+# exposure still captures real upside. Reverted 2026-09-08 per explicit
+# direction: take the largest valid lot at the same stop rather than
+# skipping. Kept here for reference/logging only, no longer enforced.
 execution:
-  risk_deviation_warn_pct: 0.15   # log a warning above this drift
-  risk_deviation_max_pct: 0.30    # skip the trade entirely above this drift
+  risk_deviation_warn_pct: 0.15   # log a warning above this drift (informational only)
+  risk_deviation_max_pct: 0.30    # UNUSED -- no longer a hard skip, see note above
 
 portfolio:
   max_open_positions: 100
