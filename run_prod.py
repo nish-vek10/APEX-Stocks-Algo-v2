@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 import sys
 from pathlib import Path
 
@@ -65,13 +66,21 @@ def main() -> None:
     orch = APEXOrchestrator()
 
     if orch.environment == "live":
-        print("\n" + "=" * 60)
-        print("  ⚠  LIVE MODE ACTIVE — REAL ORDERS WILL BE PLACED  ⚠")
-        print("=" * 60)
-        confirm = input("Type 'CONFIRM' to proceed: ")
-        if confirm.strip() != "CONFIRM":
-            print("Aborted.")
-            sys.exit(0)
+        # scheduler.py sets APEX_SCHEDULED=1 on its subprocess calls -- an
+        # interactive input() there would block forever (no TTY attached,
+        # no one to type "CONFIRM"), silently hanging the entire daily
+        # automation the first time it hit live mode. The prompt stays for
+        # anyone running run_prod.py by hand directly.
+        if os.environ.get("APEX_SCHEDULED") == "1":
+            logger.warning("LIVE MODE ACTIVE -- auto-confirmed (scheduled/automated run, APEX_SCHEDULED=1).")
+        else:
+            print("\n" + "=" * 60)
+            print("  ⚠  LIVE MODE ACTIVE — REAL ORDERS WILL BE PLACED  ⚠")
+            print("=" * 60)
+            confirm = input("Type 'CONFIRM' to proceed: ")
+            if confirm.strip() != "CONFIRM":
+                print("Aborted.")
+                sys.exit(0)
 
     if args.mode == "signals":
         signals = orch.run_signals()

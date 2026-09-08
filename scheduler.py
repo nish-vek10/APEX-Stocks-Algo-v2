@@ -67,7 +67,7 @@ logger = logging.getLogger("scheduler")
 # ── Config ────────────────────────────────────────────────────────────────────
 
 MAX_RETRIES    = int(os.environ.get("APEX_MAX_RETRIES", 3))
-RETRY_DELAY    = int(os.environ.get("APEX_RETRY_DELAY_SEC", 300))   # 5 min between retries
+RETRY_DELAY    = int(os.environ.get("APEX_RETRY_DELAY_SEC", 60))    # 1 min between retries
 
 # All times below are America/New_York LOCAL time (NYSE hours), not UTC.
 # The scheduler itself runs in this timezone (see BlockingScheduler below),
@@ -97,11 +97,27 @@ def run_script(mode: str, argv: list[str]) -> None:
     for attempt in range(1, MAX_RETRIES + 1):
         logger.info("mode=%s attempt=%d/%d", mode, attempt, MAX_RETRIES)
 
+        # APEX_SCHEDULED=1 tells run_prod.py to skip its interactive
+        # "Type CONFIRM" live-mode safety prompt -- input() would hang
+        # forever here (no TTY attached to a subprocess.run call), which
+        # would silently deadlock the entire daily automation the first
+        # time it ran against environment: "live".
+        #
+        # PYTHONIOENCODING=utf-8 forces the child process's stdout/stderr
+        # to UTF-8 regardless of the Windows console's default codepage
+        # (cp1252). Without it, ANY Unicode character anywhere in a
+        # captured print()/logger call -- the "⚠" warning symbol, emoji in
+        # Telegram alert text, even an em-dash -- raises
+        # UnicodeEncodeError and crashes the whole subprocess. Found
+        # 2026-09-08: this crashed run_prod.py's very first scheduled live
+        # execution run before it got anywhere near placing an order.
+        child_env = {**os.environ, "APEX_SCHEDULED": "1", "PYTHONIOENCODING": "utf-8"}
         result = subprocess.run(
             [sys.executable, *argv],
             capture_output=True,
             text=True,
             cwd=str(ROOT),
+            env=child_env,
         )
 
         stdout = result.stdout.strip()
@@ -122,10 +138,11 @@ def run_script(mode: str, argv: list[str]) -> None:
         )
 
         if attempt < MAX_RETRIES:
+            delay_label = f"{RETRY_DELAY}s" if RETRY_DELAY < 60 else f"{RETRY_DELAY // 60}min"
             logger.info("Retrying in %d seconds...", RETRY_DELAY)
             send_alert(
                 f"APEX scheduler: mode={mode} attempt {attempt}/{MAX_RETRIES} failed. "
-                f"Retrying in {RETRY_DELAY // 60} min.",
+                f"Retrying in {delay_label}.",
                 level="WARNING",
                 telegram_text=(
                     f"⚠️ <b>APEX RETRY</b>\n"
@@ -133,7 +150,7 @@ def run_script(mode: str, argv: list[str]) -> None:
                     f"Mode:     {mode.upper()}\n"
                     f"Attempt:  {attempt}/{MAX_RETRIES}\n"
                     f"Error:    returncode={result.returncode}\n"
-                    f"Retrying in {RETRY_DELAY // 60} min...\n"
+                    f"Retrying in {delay_label}...\n"
                     f"──────────────────────"
                 ),
             )
