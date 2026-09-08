@@ -539,15 +539,16 @@ class APEXOrchestrator:
         prices = self.connector.get_live_price(epic)
         entry_open = prices["ask"] if prices["ask"] > 0 else float(signal.get("close", 0))
 
-        # Recompute stop at live entry price
+        # Recompute stop at live entry price. Floor applies to DISTANCE,
+        # not price -- see _execute_entry_mt5's identical block for the
+        # full explanation of why max()'ing the raw prices was backwards
+        # and forced every stop to ~0.5% regardless of ATR.
         atr = float(signal.get("atr", 0))
         stop_cfg = self.prod_cfg.get("stop", {})
         atr_mult = float(stop_cfg.get("atr_multiplier", 2.0))
         floor_pct = float(stop_cfg.get("floor_pct", 0.005))
-        stop_price = max(
-            entry_open - atr * atr_mult,
-            entry_open * (1 - floor_pct),
-        )
+        stop_distance = max(atr * atr_mult, entry_open * floor_pct)
+        stop_price = entry_open - stop_distance
 
         signal["entry_open"] = entry_open
         signal["stop_price"] = stop_price
@@ -678,10 +679,22 @@ class APEXOrchestrator:
         stop_cfg = self.prod_cfg.get("stop", {})
         atr_mult = float(stop_cfg.get("atr_multiplier", 2.0))
         floor_pct = float(stop_cfg.get("floor_pct", 0.005))
-        stop_price = max(
-            entry_open - atr * atr_mult,
-            entry_open * (1 - floor_pct),
-        )
+        # Backtest computes the floor on DISTANCE, then subtracts from
+        # entry (ALGO-Stocks/backtest/engine.py lines 89-93):
+        #   stop_distance = max(atr*mult, entry*floor_pct)   -- floor only
+        #   widens a too-tight ATR stop, never narrows a wide one
+        #   stop_price = entry - stop_distance
+        # This was previously max()'d on the PRICES directly, which
+        # inverts the comparison (since these are prices below entry, the
+        # HIGHER price is the TIGHTER stop) -- so the 0.5% floor was
+        # winning on nearly every trade instead of only on abnormally low
+        # ATR. Found 2026-09-08 via the ICMarketsSC-Demo trade history:
+        # every single stop landed at ~0.5% below entry regardless of the
+        # ticker's actual ATR (NFLX, SWKS, ALNY, CEG, CMG, COR, MOS, VOR
+        # all showed the identical 0.5% pattern), forcing trades out on
+        # normal intraday noise instead of the intended ATR(14)x2 stop.
+        stop_distance = max(atr * atr_mult, entry_open * floor_pct)
+        stop_price = entry_open - stop_distance
 
         signal["entry_open"] = entry_open
         signal["stop_price"] = stop_price

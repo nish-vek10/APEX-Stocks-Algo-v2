@@ -142,12 +142,17 @@ class SignalGenerator:
         atr         = float(last.get("atr_14", 0.0)) if not pd.isna(last.get("atr_14", float("nan"))) else 0.0
 
         # ── EOD stop estimate (recalculated precisely at next-day open) ────────
+        # Floor applies to DISTANCE (max(atr*mult, close*floor_pct)), not
+        # to the resulting price -- max()'ing the two candidate PRICES
+        # directly inverts the comparison and forces the 0.5% floor to win
+        # on nearly every trade regardless of ATR. See orchestrator.py's
+        # _execute_entry_mt5 for the full writeup (found 2026-09-08 via
+        # live trade history showing every stop at ~0.5% flat).
         stop_cfg    = self.prod_cfg.get("stop", {})
         atr_mult    = float(stop_cfg.get("atr_multiplier", 2.0))
         floor_pct   = float(stop_cfg.get("floor_pct", 0.005))
-        stop_est    = close - atr * atr_mult
-        stop_floor  = close * (1 - floor_pct)
-        stop_price_eod = max(stop_est, stop_floor)
+        stop_distance_eod = max(atr * atr_mult, close * floor_pct)
+        stop_price_eod = close - stop_distance_eod
 
         logger.info(
             f"SIGNAL: {ticker} | date={signal_date.date()} | "
