@@ -82,6 +82,30 @@ LOOKBACK_DAYS  = 300   # matches config/production.yaml universe.lookback_days
 FETCH_BUFFER   = 60    # extra bars for indicator warmup (EMA200 etc.)
 STALENESS_DAYS = 1     # cache considered fresh if last_date within N days of today
 
+# NYSE full-market-closure holidays. pd.bdate_range only excludes weekends,
+# not market holidays, so the day after any holiday (e.g. Labor Day) would
+# otherwise measure Friday's perfectly-current data as "2 trading days old"
+# against STALENESS_DAYS=1, flagging the ENTIRE universe as stale
+# simultaneously and triggering a needless full re-fetch (burned ~6,000
+# extra TwelveData credits and tripped the per-minute rate limit repeatedly
+# when this happened 2026-09-08, the day after Labor Day). Covers
+# 2025-2027; extend when adding later years. Source: NYSE holiday calendar
+# (nyse.com) -- New Year's Day, MLK Day, Presidents Day, Good Friday,
+# Memorial Day, Juneteenth, Independence Day, Labor Day, Thanksgiving,
+# Christmas (all observed dates, including Sat/Sun shifts).
+NYSE_HOLIDAYS = pd.to_datetime([
+    # 2025
+    "2025-01-01", "2025-01-09", "2025-01-20", "2025-02-17", "2025-04-18",
+    "2025-05-26", "2025-06-19", "2025-07-04", "2025-09-01", "2025-11-27",
+    "2025-12-25",
+    # 2026
+    "2026-01-01", "2026-01-19", "2026-02-16", "2026-04-03", "2026-05-25",
+    "2026-06-19", "2026-07-03", "2026-09-07", "2026-11-26", "2026-12-25",
+    # 2027
+    "2027-01-01", "2027-01-18", "2027-02-15", "2027-03-26", "2027-05-31",
+    "2027-06-18", "2027-07-05", "2027-09-06", "2027-11-25", "2027-12-24",
+])
+
 
 def utc_now_iso() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -118,14 +142,14 @@ def normalize_ohlcv(df: pd.DataFrame) -> pd.DataFrame:
 def is_cache_fresh(ticker: str) -> bool:
     """
     A ticker's cache is fresh if its last_date is within STALENESS_DAYS
-    TRADING days of today -- NOT calendar days. Using calendar days meant
-    every Monday run treated Friday's (perfectly current) data as stale
-    purely because of the weekend gap, forcing a needless full re-fetch of
-    the entire already-cached universe. bdate_range excludes Sat/Sun (still
-    doesn't know about market holidays -- same known limitation as
-    orchestrator._is_nyse_regular_session(), no holiday calendar wired in
-    yet; worst case on a holiday is one extra unnecessary re-fetch, not a
-    correctness issue).
+    TRADING days of today -- NOT calendar days, and NOT plain business days
+    either. Using calendar days meant every Monday run treated Friday's
+    (perfectly current) data as stale purely because of the weekend gap.
+    Using bdate_range alone (business days, Sat/Sun excluded) fixed that
+    but missed NYSE holidays -- the day after Labor Day, Thanksgiving,
+    Christmas, etc. would still measure the last real trading day as "2
+    business days old" and flag the whole universe stale at once. Now
+    excludes both weekends and NYSE_HOLIDAYS.
     """
     meta_path = META_DIR / f"{ticker}.meta.json"
     if not meta_path.exists():
@@ -140,7 +164,8 @@ def is_cache_fresh(ticker: str) -> bool:
         if last >= today:
             age_trading_days = 0
         else:
-            age_trading_days = len(pd.bdate_range(start=last + pd.Timedelta(days=1), end=today))
+            business_days = pd.bdate_range(start=last + pd.Timedelta(days=1), end=today)
+            age_trading_days = len(business_days.difference(NYSE_HOLIDAYS))
         return meta.get("status") in ("ok", "ok_short_history") and age_trading_days <= STALENESS_DAYS
     except Exception:
         return False
