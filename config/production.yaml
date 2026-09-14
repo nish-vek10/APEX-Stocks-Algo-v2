@@ -2982,6 +2982,8 @@ stop:
 execution:
   risk_deviation_warn_pct: 0.15   # log a warning above this drift (informational only)
   risk_deviation_max_pct: 0.30    # UNUSED -- no longer a hard skip, see note above
+  no_quote_retry_window_sec: 300   # total time to keep retrying entries that failed as no_live_quote (2026-09-14)
+  no_quote_retry_interval_sec: 30  # gap between retry passes within that window
 
 portfolio:
   max_open_positions: 100

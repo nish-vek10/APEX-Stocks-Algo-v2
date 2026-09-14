@@ -41,6 +41,7 @@ from __future__ import annotations
 import logging
 import math
 import os
+import time
 from datetime import datetime, time as dt_time, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -255,6 +256,70 @@ class APEXOrchestrator:
     # Execution Run
     # -------------------------------------------------------------------------
 
+    def _attempt_entry(
+        self,
+        signal: Dict[str, Any],
+        ticker: str,
+        broker_sym: str,
+        equity: float,
+        gate_result: Dict[str, Any],
+    ) -> Optional[str]:
+        """
+        Attempt one entry order and handle all success-path side effects
+        (position open, Telegram alert, [FILLED] print, run log) in one
+        place. Returns None on success, or a fail_reason string on failure.
+
+        Factored out 2026-09-14 so both the main entry pass AND the
+        no_live_quote retry window in run_execution() get byte-identical
+        handling instead of two copies drifting apart over time.
+        """
+        try:
+            if self.broker == "ig":
+                result, entry_open, stop_price, shares = self._execute_entry_ig(
+                    signal, broker_sym, ticker, equity, gate_result,
+                )
+            else:
+                result, entry_open, stop_price, shares = self._execute_entry_mt5(
+                    signal, broker_sym, ticker, equity, gate_result,
+                )
+
+            if result["success"]:
+                fill_price = result.get("price", entry_open)
+                # deal_id for IG, order ticket for MT5 -- stored in mt5_ticket field
+                order_id = result.get("deal_id") or result.get("order", 0)
+                stop_distance = fill_price - stop_price
+                risk_dollars = shares * stop_distance
+                self.pos_mgr.open_position(
+                    ticker, order_id,
+                    fill_price, stop_price,
+                    shares, signal, broker_sym,
+                    mt5_volume=result.get("mt5_volume"),
+                )
+                alert_order_sent(
+                    ticker, broker_sym, shares, fill_price, stop_price,
+                    risk_dollars, stop_distance, self.environment,
+                    deal_id=str(order_id),
+                )
+                self.run_logger.log_position_open(
+                    ticker, fill_price, stop_price, shares,
+                )
+                entry_ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+                print(
+                    f"[FILLED] {ticker} ({broker_sym}) | time={entry_ts} | "
+                    f"entry=${fill_price:.4f} | lot={result.get('mt5_volume', 'n/a')} | "
+                    f"shares={shares:.0f} | sl=${stop_price:.4f} | "
+                    f"risk=${risk_dollars:.2f} | order_id={order_id}"
+                )
+                return None
+
+            return str(result.get("reason") or result.get("comment") or result.get("retcode"))
+
+        except Exception as exc:
+            logger.error("%s: execution error -- %s", ticker, exc, exc_info=True)
+            alert_error(ticker, str(exc))
+            self.run_logger.log_error(ticker, str(exc))
+            return "exception"
+
     def run_execution(self) -> None:
         """Execute pending signals at next-day open."""
         logger.info("=== EXECUTION RUN ===")
@@ -318,6 +383,10 @@ class APEXOrchestrator:
             # Process entries
             signals = self.state_mgr.get_pending_signals()
             executed = 0
+            no_quote_retry_queue: List[Tuple[Dict[str, Any], str, Dict[str, Any]]] = []
+            exec_cfg = self.prod_cfg.get("execution", {})
+            no_quote_retry_window_sec = int(exec_cfg.get("no_quote_retry_window_sec", 300))
+            no_quote_retry_interval_sec = int(exec_cfg.get("no_quote_retry_interval_sec", 30))
 
             for signal in signals:
                 if executed >= available_slots:
@@ -373,54 +442,70 @@ class APEXOrchestrator:
                     logger.info("%s: gate blocked (%s)", ticker, gate_result["reason"])
                     continue
 
-                try:
-                    if self.broker == "ig":
-                        result, entry_open, stop_price, shares = self._execute_entry_ig(
-                            signal, broker_sym, ticker, equity, gate_result,
-                        )
-                    else:
-                        result, entry_open, stop_price, shares = self._execute_entry_mt5(
-                            signal, broker_sym, ticker, equity, gate_result,
-                        )
+                fail_reason = self._attempt_entry(signal, ticker, broker_sym, equity, gate_result)
+                if fail_reason is None:
+                    executed += 1
+                elif fail_reason == "no_live_quote":
+                    # Common right at/just after market open -- some symbols'
+                    # quote streams take longer to populate than
+                    # get_live_tick()'s own per-call retry budget (6s). Queue
+                    # for the post-pass retry window below instead of
+                    # rejecting outright on a single early check.
+                    logger.info(
+                        "%s: no_live_quote on first attempt -- queued for retry "
+                        "(up to %ds window).", ticker, no_quote_retry_window_sec,
+                    )
+                    no_quote_retry_queue.append((signal, broker_sym, gate_result))
+                else:
+                    logger.error("%s: order failed -- reason=%s", ticker, fail_reason)
+                    alert_order_rejected(ticker, broker_sym, str(fail_reason), self.environment)
+                    self.run_logger.log_error(ticker, f"order_failed: {fail_reason}")
 
-                    if result["success"]:
-                        fill_price = result.get("price", entry_open)
-                        # deal_id for IG, order ticket for MT5 -- stored in mt5_ticket field
-                        order_id = result.get("deal_id") or result.get("order", 0)
-                        stop_distance = fill_price - stop_price
-                        risk_dollars = shares * stop_distance
-                        self.pos_mgr.open_position(
-                            ticker, order_id,
-                            fill_price, stop_price,
-                            shares, signal, broker_sym,
-                            mt5_volume=result.get("mt5_volume"),
-                        )
-                        alert_order_sent(
-                            ticker, broker_sym, shares, fill_price, stop_price,
-                            risk_dollars, stop_distance, self.environment,
-                            deal_id=str(order_id),
-                        )
-                        self.run_logger.log_position_open(
-                            ticker, fill_price, stop_price, shares,
-                        )
-                        entry_ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
-                        print(
-                            f"[FILLED] {ticker} ({broker_sym}) | time={entry_ts} | "
-                            f"entry=${fill_price:.4f} | lot={result.get('mt5_volume', 'n/a')} | "
-                            f"shares={shares:.0f} | sl=${stop_price:.4f} | "
-                            f"risk=${risk_dollars:.2f} | order_id={order_id}"
-                        )
-                        executed += 1
-                    else:
-                        fail_reason = result.get("reason") or result.get("comment") or result.get("retcode")
-                        logger.error("%s: order failed -- reason=%s", ticker, fail_reason)
-                        alert_order_rejected(ticker, broker_sym, str(fail_reason), self.environment)
-                        self.run_logger.log_error(ticker, f"order_failed: {fail_reason}")
+            # Retry window for entries that failed purely because MT5 had no
+            # live quote yet. Found 2026-09-14 (CXW/DMC/HNRG/SMR rejected as
+            # no_live_quote right after open): a single early check is too
+            # impatient for some symbols' quote streams, but a full 5-minute
+            # window with periodic re-checks gives them room to come alive
+            # without indefinitely blocking on quiet names that never will.
+            # Only "no_live_quote" failures get requeued here -- every other
+            # failure reason (fatal retcode, gate block, zero size, etc.) was
+            # already alerted and finalized in the loop above.
+            if no_quote_retry_queue:
+                deadline = time.monotonic() + no_quote_retry_window_sec
+                while no_quote_retry_queue and executed < available_slots and time.monotonic() < deadline:
+                    time.sleep(no_quote_retry_interval_sec)
+                    still_pending = []
+                    for sig, bsym, gate in no_quote_retry_queue:
+                        if executed >= available_slots:
+                            still_pending.append((sig, bsym, gate))
+                            continue
+                        tkr = sig["ticker"]
+                        if self.pos_mgr.is_open(tkr):
+                            continue  # got filled some other way already
+                        retry_reason = self._attempt_entry(sig, tkr, bsym, equity, gate)
+                        if retry_reason is None:
+                            executed += 1
+                            logger.info("%s: no_live_quote resolved on retry -- filled.", tkr)
+                        elif retry_reason == "no_live_quote":
+                            still_pending.append((sig, bsym, gate))
+                        else:
+                            logger.error("%s: order failed on retry -- reason=%s", tkr, retry_reason)
+                            alert_order_rejected(tkr, bsym, str(retry_reason), self.environment)
+                            self.run_logger.log_error(tkr, f"order_failed: {retry_reason}")
+                    no_quote_retry_queue = still_pending
 
-                except Exception as exc:
-                    logger.error("%s: execution error -- %s", ticker, exc, exc_info=True)
-                    alert_error(ticker, str(exc))
-                    self.run_logger.log_error(ticker, str(exc))
+                for sig, bsym, gate in no_quote_retry_queue:
+                    tkr = sig["ticker"]
+                    logger.error(
+                        "%s: no_live_quote persisted for %ds -- giving up.",
+                        tkr, no_quote_retry_window_sec,
+                    )
+                    alert_order_rejected(
+                        tkr, bsym,
+                        f"no_live_quote (persisted after {no_quote_retry_window_sec}s retry window)",
+                        self.environment,
+                    )
+                    self.run_logger.log_error(tkr, "no_live_quote: exhausted retry window")
 
             self.state_mgr.clear_pending_signals()
             self.state_mgr.mark_execution_complete()
@@ -483,6 +568,7 @@ class APEXOrchestrator:
             # deal from history rather than guessing the exit price.
             exit_price = float(pos.get("stop_price") or pos.get("entry_price") or 0.0)
             close_detail = "history unavailable -- using stop_price as best estimate"
+            close_time_str = "unknown"
             try:
                 deals = mt5.history_deals_get(position=ticket)
                 if deals:
@@ -490,6 +576,14 @@ class APEXOrchestrator:
                     closing_deal = max(out_deals or deals, key=lambda d: d.time)
                     exit_price = float(closing_deal.price)
                     close_detail = closing_deal.comment or "no broker comment"
+                    # closing_deal.time is a Unix epoch second (MT5's native
+                    # format) -- convert to UTC ISO for the log/alert so an
+                    # outage's exact timeline (one bad day vs. a slow bleed
+                    # across several) is visible without needing to query
+                    # MT5 again after the fact. Added 2026-09-14.
+                    close_time_str = datetime.fromtimestamp(
+                        closing_deal.time, tz=timezone.utc
+                    ).strftime("%Y-%m-%d %H:%M:%S UTC")
             except Exception as exc:
                 logger.warning("%s: history_deals_get failed during reconciliation -- %s", ticker, exc)
 
@@ -504,13 +598,14 @@ class APEXOrchestrator:
                 alert_position_closed(
                     ticker, pos.get("mt5_symbol", ""), exit_price,
                     trade.get("pnl_total", 0), trade.get("pnl_r", 0),
-                    f"broker_closed_externally ({close_detail}) -- local state was stale, now reconciled",
+                    f"broker_closed_externally ({close_detail}, closed {close_time_str}) "
+                    f"-- local state was stale, now reconciled",
                     self.environment,
                 )
             logger.warning(
-                "%s: RECONCILED -- MT5 ticket=%s was already closed by the broker; "
+                "%s: RECONCILED -- MT5 ticket=%s was already closed by the broker at %s; "
                 "local state was stale. exit=%.4f | detail=%s",
-                ticker, ticket, exit_price, close_detail,
+                ticker, ticket, close_time_str, exit_price, close_detail,
             )
 
     def _process_exits(self, equity: float) -> None:
