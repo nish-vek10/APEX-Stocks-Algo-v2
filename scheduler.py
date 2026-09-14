@@ -39,6 +39,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import subprocess
 import sys
 import time
@@ -81,6 +82,17 @@ SIGNAL_MIN     = int(os.environ.get("APEX_SIGNAL_MIN", 5))
 EXEC_HOUR      = int(os.environ.get("APEX_EXEC_HOUR", 9))      # 09:31 ET, after 09:30 ET open
 EXEC_MIN       = int(os.environ.get("APEX_EXEC_MIN", 31))
 HEARTBEAT_MIN  = int(os.environ.get("APEX_HEARTBEAT_MIN", 10))
+
+# Cache-refresh retry-until-converged settings. build_td_cache.py is
+# idempotent (already-fresh tickers are zero-cost skips), so re-running it
+# after a round with errors only re-attempts the tickers that just failed --
+# usually enough to clear rate-limit collateral / transient TD API hiccups.
+# NOT a blind infinite retry: some errors are PERMANENT (delisted tickers,
+# wrong symbol suffix, plan-restricted names -- confirmed 2026-09-14 for
+# AAC-U, BF-A, CRD-A, HEI-A, LPRO, MOG-A, SKYT, UHAL-B, EA) and will never
+# clear no matter how many rounds run. See job_cache_refresh().
+CACHE_MAX_ROUNDS    = int(os.environ.get("APEX_CACHE_MAX_ROUNDS", 5))
+CACHE_ROUND_DELAY   = int(os.environ.get("APEX_CACHE_ROUND_DELAY_SEC", 20))
 
 
 # ── Job runner with retry ─────────────────────────────────────────────────────
@@ -174,8 +186,135 @@ def run_script(mode: str, argv: list[str]) -> None:
     )
 
 
+def _parse_cache_summary(stdout: str):
+    """
+    Pulls the final "ok=X partial=Y err=Z" line out of build_td_cache.py's
+    stdout. Returns (ok, partial, err) or None if the line wasn't found
+    (e.g. the script crashed before printing it).
+    """
+    match = re.search(r"ok=(\d+)\s+partial=(\d+)\s+err=(\d+)", stdout)
+    if not match:
+        return None
+    return tuple(int(x) for x in match.groups())
+
+
 def job_cache_refresh() -> None:
-    run_script("cache_refresh", [str(ROOT / "tools" / "build_td_cache.py")])
+    """
+    Runs build_td_cache.py in a bounded retry-until-converged loop instead
+    of a single shot. Found 2026-09-14: after a multi-day scheduler outage,
+    the first pass left 228 tickers erroring (mostly rate-limit collateral
+    from re-fetching a large stale backlog in one go); a second, unassisted
+    manual re-run dropped that to 30 with zero code changes -- purely
+    because build_td_cache.py is idempotent and only re-attempts tickers
+    that failed last time. This automates that same manual pattern.
+
+    Stops as soon as either:
+      - err reaches 0 (fully clean), or
+      - err stops improving between two consecutive rounds (remaining
+        failures are permanent -- delisted/wrong-suffix/plan-restricted
+        symbols that will never succeed no matter how many times this
+        runs), or
+      - CACHE_MAX_ROUNDS is reached.
+    Alerts via Telegram only when it stops with errors still remaining, so
+    a normal clean day stays silent.
+    """
+    ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    logger.info("SCHEDULER: starting job mode=cache_refresh @ %s", ts)
+
+    child_env = {**os.environ, "APEX_SCHEDULED": "1", "PYTHONIOENCODING": "utf-8"}
+    prev_err = None
+
+    for round_num in range(1, CACHE_MAX_ROUNDS + 1):
+        logger.info("cache_refresh round %d/%d", round_num, CACHE_MAX_ROUNDS)
+        result = subprocess.run(
+            [sys.executable, str(ROOT / "tools" / "build_td_cache.py")],
+            capture_output=True,
+            text=True,
+            cwd=str(ROOT),
+            env=child_env,
+        )
+        stdout = result.stdout.strip()
+        stderr = result.stderr.strip()
+        if stdout:
+            logger.info("[cache_refresh stdout]\n%s", stdout)
+        if stderr:
+            logger.warning("[cache_refresh stderr]\n%s", stderr)
+
+        summary = _parse_cache_summary(stdout)
+        if summary is None:
+            logger.error(
+                "cache_refresh round %d: could not parse ok/err summary (script may have "
+                "crashed, returncode=%d) -- treating as a failed round.",
+                round_num, result.returncode,
+            )
+            if round_num < CACHE_MAX_ROUNDS:
+                time.sleep(CACHE_ROUND_DELAY)
+                continue
+            send_alert(
+                "APEX cache refresh: build_td_cache.py did not produce a parseable summary "
+                f"after {CACHE_MAX_ROUNDS} round(s) -- check logs.",
+                level="WARNING",
+                telegram_text=(
+                    f"⚠️ <b>APEX CACHE REFRESH -- NO SUMMARY</b>\n"
+                    f"──────────────────────\n"
+                    f"Rounds attempted: {CACHE_MAX_ROUNDS}\n"
+                    f"Script produced no parseable ok/err line -- check logs.\n"
+                    f"──────────────────────"
+                ),
+            )
+            return
+
+        ok, partial, err = summary
+        logger.info("cache_refresh round %d: ok=%d partial=%d err=%d", round_num, ok, partial, err)
+
+        if err == 0:
+            logger.info("cache_refresh: clean (0 errors) after %d round(s).", round_num)
+            return
+
+        if prev_err is not None and err >= prev_err:
+            logger.warning(
+                "cache_refresh: err count not improving (%d -> %d) after round %d -- "
+                "stopping, remaining failures are likely permanent (delisted/plan-restricted symbols).",
+                prev_err, err, round_num,
+            )
+            send_alert(
+                f"APEX cache refresh: {err} ticker(s) still failing after {round_num} round(s), "
+                "not improving further -- likely permanent (delisted/unsupported/plan-restricted symbols).",
+                level="WARNING",
+                telegram_text=(
+                    f"⚠️ <b>APEX CACHE REFRESH -- RESIDUAL ERRORS</b>\n"
+                    f"──────────────────────\n"
+                    f"ok={ok}  err={err}  (after {round_num} round(s), not improving)\n"
+                    f"Likely permanent -- check <code>_errors.jsonl</code> for the ticker list.\n"
+                    f"──────────────────────"
+                ),
+            )
+            return
+
+        prev_err = err
+        if round_num < CACHE_MAX_ROUNDS:
+            logger.info(
+                "cache_refresh: %d error(s) remain (improving) -- retrying in %ds.",
+                err, CACHE_ROUND_DELAY,
+            )
+            time.sleep(CACHE_ROUND_DELAY)
+
+    logger.warning(
+        "cache_refresh: reached max rounds (%d) with %s error(s) still remaining.",
+        CACHE_MAX_ROUNDS, prev_err,
+    )
+    send_alert(
+        f"APEX cache refresh: reached max rounds ({CACHE_MAX_ROUNDS}) with {prev_err} error(s) remaining.",
+        level="WARNING",
+        telegram_text=(
+            f"⚠️ <b>APEX CACHE REFRESH -- MAX ROUNDS REACHED</b>\n"
+            f"──────────────────────\n"
+            f"Rounds: {CACHE_MAX_ROUNDS}\n"
+            f"Remaining errors: {prev_err}\n"
+            f"Check: <code>_errors.jsonl</code>\n"
+            f"──────────────────────"
+        ),
+    )
 
 
 def job_signals() -> None:
