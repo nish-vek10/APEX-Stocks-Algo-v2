@@ -47,7 +47,7 @@ def ensure_symbol_selected(mt5_symbol: str) -> bool:
     return bool(mt5.symbol_select(mt5_symbol, True))
 
 
-def get_live_tick(mt5_symbol: str, retries: int = 3, delay_sec: float = 0.5) -> Optional[Any]:
+def get_live_tick(mt5_symbol: str, retries: int = 6, delay_sec: float = 1.0) -> Optional[Any]:
     """
     Select `mt5_symbol` and fetch a tick with ask > 0, retrying briefly.
 
@@ -61,6 +61,13 @@ def get_live_tick(mt5_symbol: str, retries: int = 3, delay_sec: float = 0.5) -> 
     the very first tick check with no retry. Returns the tick object (with
     ask/bid > 0) on success, or None if still no valid quote after
     `retries` attempts.
+
+    Bumped from 3x0.5s (1.5s total) to 6x1.0s (6s total) on 2026-09-14 --
+    CXW, DMC, HNRG, SMR all still failed as no_live_quote under the old
+    budget on 2026-09-09 despite ensure_symbol_selected() running first;
+    these are thin/illiquid names whose quote stream needs a longer warm-up
+    than the original BTU-fix budget assumed. Still not a guarantee for
+    genuinely dead/no-volume names, just meaningfully better odds.
     """
     if not MT5_AVAILABLE:
         return None

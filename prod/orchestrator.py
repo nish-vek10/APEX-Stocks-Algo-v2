@@ -84,6 +84,7 @@ from prod.risk.circuit_breaker import CircuitBreaker
 from prod.risk.position_sizer import compute_position_size
 from prod.signals.signal_generator import SignalGenerator
 from prod.state.state_manager import StateManager
+from core.utils.trading_calendar import next_trading_day
 
 ROOT = Path(__file__).resolve().parents[1]
 logger = logging.getLogger("orchestrator")
@@ -270,6 +271,15 @@ class APEXOrchestrator:
                 self.run_logger.log_circuit_breaker(cb["reason"])
                 return
 
+            # Reconcile local position state against MT5's real book BEFORE
+            # touching anything else. Must run first: _process_exits below
+            # trusts pos_mgr.get_open() as ground truth, and if the broker's
+            # native SL already closed a position while nothing was polling
+            # (e.g. a scheduler outage), that trust is misplaced -- see
+            # _reconcile_mt5_positions docstring for the BSVN incident this
+            # fixes (2026-09-09).
+            self._reconcile_mt5_positions()
+
             # Process exits first -- never gated on market-hours: closing
             # existing risk (stop/stage9/time-stop) should never be delayed.
             self._process_exits(equity)
@@ -314,6 +324,35 @@ class APEXOrchestrator:
                     break
 
                 ticker = signal["ticker"]
+
+                # Staleness gate -- a signal generated off day T's close is
+                # ONLY valid for entry at T's next trading day open. If
+                # execution didn't run during market hours for one or more
+                # full days (scheduler outage, missed cron, manual re-run
+                # days later), this signal is no longer "next day open" --
+                # it's a late/stale entry with no backtest validation behind
+                # it (found 2026-09-14: signals up to ~a week old were about
+                # to be executed as if fresh after an execution gap). Void
+                # it instead of silently entering days late at a materially
+                # different price/setup than the signal was based on.
+                signal_date = signal.get("signal_date")
+                if signal_date is not None:
+                    valid_entry_date = next_trading_day(signal_date)
+                    if pd.Timestamp(today) > valid_entry_date:
+                        logger.warning(
+                            "%s: STALE SIGNAL VOIDED -- signal_date=%s, valid entry was "
+                            "%s, today=%s (design lock: next-trading-day-open entries only).",
+                            ticker, pd.Timestamp(signal_date).date(),
+                            valid_entry_date.date(), today,
+                        )
+                        alert_order_rejected(
+                            ticker, self.epic_map.get(ticker, ""),
+                            f"stale signal voided -- signal={pd.Timestamp(signal_date).date()}, "
+                            f"valid entry was {valid_entry_date.date()}, today={today}",
+                            self.environment,
+                        )
+                        continue
+
                 if self.pos_mgr.is_open(ticker):
                     logger.debug("%s: already open -- skip.", ticker)
                     continue
@@ -394,6 +433,85 @@ class APEXOrchestrator:
     # -------------------------------------------------------------------------
     # Exit Processing
     # -------------------------------------------------------------------------
+
+    def _reconcile_mt5_positions(self) -> None:
+        """
+        Detect positions our local state (state/positions.json) thinks are
+        still open, but that MT5's own account no longer shows as open.
+
+        Root cause this fixes: every entry gets a native broker-side stop
+        attached (build_entry_request's sl= field), enforced continuously
+        by MT5/IC Markets regardless of whether this process is running.
+        If that native SL fires while the scheduler is down (machine
+        restart, outage, etc.), the broker closes the position for real,
+        but our local state file is never told -- it still shows the
+        position open. The next time _process_exits() runs, it sees
+        current_price <= stop_price on the stale local record, decides
+        exit_reason="stop_hit", and tries to manually close a ticket MT5 no
+        longer recognizes as open. That failed with retcode=10013 (Invalid
+        Request) for BSVN on 2026-09-09 -- and because the close attempt
+        failed, close_position() never ran, so BSVN stayed marked open
+        locally indefinitely with no way to self-correct.
+
+        This method runs first, every execution cycle, and closes that gap:
+        for any locally-open ticket not in MT5's live position list, pull
+        the real closing deal from MT5 history and reconcile local state to
+        match reality, instead of letting _process_exits() try (and fail)
+        to close something that's already gone.
+        """
+        if self.broker != "mt5":
+            return
+
+        import MetaTrader5 as mt5
+
+        local_open = self.pos_mgr.get_open()
+        if not local_open:
+            return
+
+        live_positions = mt5.positions_get()
+        live_tickets = {p.ticket for p in live_positions} if live_positions else set()
+
+        for pos in local_open:
+            ticket = pos.get("mt5_ticket")
+            ticker = pos["ticker"]
+            if ticket in live_tickets:
+                continue  # genuinely still open on the broker's side
+
+            # MT5 no longer shows this as an open position -- it was closed
+            # outside our own execution loop (native SL, margin action,
+            # manual close in the terminal, etc). Pull the real closing
+            # deal from history rather than guessing the exit price.
+            exit_price = float(pos.get("stop_price") or pos.get("entry_price") or 0.0)
+            close_detail = "history unavailable -- using stop_price as best estimate"
+            try:
+                deals = mt5.history_deals_get(position=ticket)
+                if deals:
+                    out_deals = [d for d in deals if getattr(d, "entry", None) == mt5.DEAL_ENTRY_OUT]
+                    closing_deal = max(out_deals or deals, key=lambda d: d.time)
+                    exit_price = float(closing_deal.price)
+                    close_detail = closing_deal.comment or "no broker comment"
+            except Exception as exc:
+                logger.warning("%s: history_deals_get failed during reconciliation -- %s", ticker, exc)
+
+            trade = self.pos_mgr.close_position(ticker, exit_price, "broker_closed_externally")
+            if trade:
+                self.portfolio.record(trade)
+                self.circuit_breaker.record_trade_result(trade.get("pnl_total", 0))
+                self.run_logger.log_position_close(
+                    ticker, exit_price, trade.get("pnl_total", 0),
+                    trade.get("pnl_r", 0), "broker_closed_externally",
+                )
+                alert_position_closed(
+                    ticker, pos.get("mt5_symbol", ""), exit_price,
+                    trade.get("pnl_total", 0), trade.get("pnl_r", 0),
+                    f"broker_closed_externally ({close_detail}) -- local state was stale, now reconciled",
+                    self.environment,
+                )
+            logger.warning(
+                "%s: RECONCILED -- MT5 ticket=%s was already closed by the broker; "
+                "local state was stale. exit=%.4f | detail=%s",
+                ticker, ticket, exit_price, close_detail,
+            )
 
     def _process_exits(self, equity: float) -> None:
         """

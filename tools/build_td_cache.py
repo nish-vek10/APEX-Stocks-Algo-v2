@@ -60,6 +60,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 load_dotenv(ROOT / ".env")
 
+from core.utils.trading_calendar import NYSE_HOLIDAYS  # noqa: E402 -- single source of truth (see that module's docstring)
+
 PRODUCTION_YAML = ROOT / "config" / "production.yaml"
 
 OUT_DIR        = ROOT / "data" / "raw" / "prices_daily" / "twelvedata"
@@ -82,29 +84,15 @@ LOOKBACK_DAYS  = 300   # matches config/production.yaml universe.lookback_days
 FETCH_BUFFER   = 60    # extra bars for indicator warmup (EMA200 etc.)
 STALENESS_DAYS = 1     # cache considered fresh if last_date within N days of today
 
-# NYSE full-market-closure holidays. pd.bdate_range only excludes weekends,
-# not market holidays, so the day after any holiday (e.g. Labor Day) would
-# otherwise measure Friday's perfectly-current data as "2 trading days old"
-# against STALENESS_DAYS=1, flagging the ENTIRE universe as stale
-# simultaneously and triggering a needless full re-fetch (burned ~6,000
-# extra TwelveData credits and tripped the per-minute rate limit repeatedly
-# when this happened 2026-09-08, the day after Labor Day). Covers
-# 2025-2027; extend when adding later years. Source: NYSE holiday calendar
-# (nyse.com) -- New Year's Day, MLK Day, Presidents Day, Good Friday,
-# Memorial Day, Juneteenth, Independence Day, Labor Day, Thanksgiving,
-# Christmas (all observed dates, including Sat/Sun shifts).
-NYSE_HOLIDAYS = pd.to_datetime([
-    # 2025
-    "2025-01-01", "2025-01-09", "2025-01-20", "2025-02-17", "2025-04-18",
-    "2025-05-26", "2025-06-19", "2025-07-04", "2025-09-01", "2025-11-27",
-    "2025-12-25",
-    # 2026
-    "2026-01-01", "2026-01-19", "2026-02-16", "2026-04-03", "2026-05-25",
-    "2026-06-19", "2026-07-03", "2026-09-07", "2026-11-26", "2026-12-25",
-    # 2027
-    "2027-01-01", "2027-01-18", "2027-02-15", "2027-03-26", "2027-05-31",
-    "2027-06-18", "2027-07-05", "2027-09-06", "2027-11-25", "2027-12-24",
-])
+# NYSE_HOLIDAYS now imported from core/utils/trading_calendar.py (single
+# source of truth -- centralised 2026-09-14 so this cache-freshness check
+# and orchestrator.py's signal-staleness gate can never silently drift
+# apart). Original incident this guarded against: the day after any
+# holiday (e.g. Labor Day) would otherwise measure Friday's perfectly
+# current data as "2 trading days old" against STALENESS_DAYS=1, flagging
+# the ENTIRE universe as stale simultaneously and triggering a needless
+# full re-fetch (burned ~6,000 extra TwelveData credits and tripped the
+# per-minute rate limit repeatedly, 2026-09-08).
 
 
 def utc_now_iso() -> str:
