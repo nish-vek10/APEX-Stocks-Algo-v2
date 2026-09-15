@@ -186,13 +186,38 @@ class APEXOrchestrator:
         # StateManager.has_fired_signal() docstring). Without this, a
         # scheduler retry/misfire or a manual re-run replays the exact
         # same entries.
+        #
+        # CRITICAL: this must MERGE into pending_signals, never overwrite.
+        # Bug found 2026-09-15: a second same-day --mode signals run (cache
+        # unchanged) re-detected the same 24 transitions, found them all in
+        # fired_signals from the first run, filtered them all out, and then
+        # called set_pending_signals([]) -- silently wiping the 24 correctly
+        # -queued signals from state before execution ever ran. Fix: always
+        # union with whatever is already pending so a repeat/idempotent run
+        # can only ever add signals, never erase ones already queued.
+        existing_pending = self.state_mgr.get_pending_signals()
+        existing_keys = {
+            (p["ticker"], str(p["signal_date"])[:10]) for p in existing_pending
+        }
+
         signals = []
         skipped_dupes = []
+        skipped_already_pending = []
         for s in raw_signals:
-            if self.state_mgr.has_fired_signal(s["ticker"], str(s["signal_date"])[:10]):
+            key = (s["ticker"], str(s["signal_date"])[:10])
+            if key in existing_keys:
+                skipped_already_pending.append(s["ticker"])
+                continue
+            if self.state_mgr.has_fired_signal(s["ticker"], key[1]):
                 skipped_dupes.append(s["ticker"])
                 continue
             signals.append(s)
+
+        if skipped_already_pending:
+            logger.info(
+                "Skipped %d signal(s) already queued as pending (repeat run before execution): %s",
+                len(skipped_already_pending), skipped_already_pending,
+            )
         if skipped_dupes:
             logger.info(
                 "Skipped %d already-fired signal(s) (unchanged cache since last run): %s",
@@ -203,7 +228,8 @@ class APEXOrchestrator:
             self.run_logger.log_signal(s)
             alert_signal_found(s["ticker"], s["stage"], str(s["signal_date"]), s.get("stage_name", ""))
 
-        self.state_mgr.set_pending_signals(signals)
+        combined_pending = existing_pending + signals
+        self.state_mgr.set_pending_signals(combined_pending)
         self.state_mgr.record_fired_signals(signals)
 
         # Stage 9 (In-Zone Fading) exit check for currently-open positions --
