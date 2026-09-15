@@ -1,9 +1,11 @@
 # APEX — Production Algo System
 
-**Long-only breakout US equity strategy — exact production replication of the ALGO-Stocks backtest (PF 2.26, E[R] 0.63).**
-Broker-agnostic execution: IG Group (default, live) and MT5 (IC Markets demo, in testing).
+**Long-only breakout US equity strategy — production replication of the ALGO-Stocks backtest (`universe_baseline_v1_20260224_2310`, PF 2.26, E[R] 0.63).**
+Broker-agnostic architecture; **MT5 (IC Markets) is the active live broker** as of 2026-09-09 (`environment: "live"` in `config/production.yaml`, currently pointed at the IC Markets DEMO account — see §15 for what "live" actually means here vs. real money). IG Group remains supported but is no longer the primary path.
 
 > This file is the operational blueprint — every script, every path, every command, in the order you actually run them. (SYSTEM_GUIDE.md is deprecated as of 2026-08-13 — everything it covered, including Telegram alerts, now lives here.)
+>
+> **Before trading any real capital, read §20 (Pre-Live Audit, 2026-09-15) in full.** It documents a full line-by-line parity check against the actual ALGO-Stocks backtest source and surfaces one methodology mismatch (concurrent-position capital sizing) that materially affects how this system behaves on a small real-money account vs. the backtest or a large demo account. It is not a code bug — it's a capital-adequacy reality that needs a conscious decision before going live with real funds.
 
 ---
 
@@ -30,6 +32,7 @@ Broker-agnostic execution: IG Group (default, live) and MT5 (IC Markets demo, in
 - [17. Transferring This Project to Another Machine](#17-transferring-this-project-to-another-machine)
 - [18. Known Gaps / Open Items](#18-known-gaps--open-items)
 - [19. Telegram Alert Reference — Every Message Type, When It Fires, Examples](#19-telegram-alert-reference--every-message-type-when-it-fires-examples)
+- [20. Pre-Live Audit (2026-09-15) — Backtest Parity Findings & $10k Readiness](#20-pre-live-audit-2026-09-15--backtest-parity-findings--10k-readiness)
 
 ---
 
@@ -58,7 +61,9 @@ APEX-Stocks_algo-v2/
 |   |-- filters/spider_gate.py            # SpiderGate: macro permission layer
 |   `-- utils/
 |       |-- config_loader.py         # load_*_config(), resolve_ig_credentials(), resolve_mt5_credentials()
-|       `-- logging.py               # setup_logger()
+|       |-- logging.py               # setup_logger()
+|       `-- trading_calendar.py      # NYSE_HOLIDAYS + is_trading_day()/next_trading_day() -- single source of
+|                                     # truth shared by cache freshness, market-hours guard, stale-signal gate
 |
 |-- prod/                            # Production execution layer
 |   |-- orchestrator.py              # APEXOrchestrator — master broker-dispatching coordinator
@@ -358,41 +363,49 @@ python tools/build_td_cache.py --tickers AAPL,MSFT,NVDA
 ## 12. Strategy Logic Summary
 
 ### Signal Generation (EOD)
-1. Fetch D1 OHLCV (TwelveData cache, `lookback_days` bars per ticker — default 300)
-2. Apply indicators: EMA 10/20/50/100/200, BB(20, 2σ), Donchian(20), ATR(14), Volume(20), MACD, RSI
-3. Classify each bar into Stage 1-9 (expanding-window state machine)
-4. **Stage 2 Dislocation** prerequisite: once seen, never resets (`state/stage2_memory.json`)
-5. Signal fires on **Stage 7 (Breakout Confirmed)** detection, with Stage 2 present in history
-6. Persisted to `state/run_state.json` for next-day execution
+1. Fetch D1 OHLCV (TwelveData cache, `lookback_days` bars per ticker — default 300; hard-gated at **260 real bars minimum** before any stage other than 1 can be assigned, matching the backtest's explicit cutoff exactly — added 2026-09-15, see §20)
+2. Apply indicators: EMA 10/20/50/100/200, BB(20, 2σ), Donchian(20, shifted 1 bar for point-in-time-safe breakout detection), ATR(14, Wilder's method), Volume(20, surge = ratio ≥ 1.15×)
+3. Classify each bar into Stage 1-9 (expanding-window state machine, `core/stages/stage_classifier.py`)
+4. **Stage 2 (Sharp Downtrend)** dislocation prerequisite: once seen for a ticker, permanently eligible for Stage 6/7 entry (`stage2_ever_before`, point-in-time safe shift+cummax, recomputed fresh from the full lookback window every run — NOT read from the persisted `state/stage2_memory.json`, which is write-only bookkeeping with no bearing on the actual gate, see §20)
+5. Signal fires on a **transition into Stage 6 or 7** (today in {6,7}, yesterday not in {6,7}) — Stage 7 ("Breakout Confirmed") is the primary/preferred entry, Stage 6 ("Breakout") the secondary variant missing only the EMA50 reclaim
+6. Persisted to `state/run_state.json` for next-day execution; voided at execution time if the next-trading-day-open window has already passed (§20 — stale-signal gate, added 2026-09-14)
 
-| Stage | Name | Primary Condition |
+The 9-stage state machine, verified line-by-line against `ALGO-Stocks/stages/stage_classifier.py::classify_stage` (the actual source of the validated PF 2.26 run's stage labels, confirmed via `08B_classify_stock_stages.py`'s import chain — see §20):
+
+| Stage | Name | Condition |
 |---|---|---|
-| 1 | Downtrend | EMA10 < EMA20 < EMA50 |
-| 2 | Dislocation | Price ≤ BB lower OR price ≤ EMA50 × 0.98 |
-| 3 | Accumulation | Volume surge > 1.15× |
-| 4 | Base Building | Price near Donchian upper |
-| 5 | Pre-Breakout | EMA10 > EMA20 |
-| 6 | Breakout Attempt | Price ≥ Donchian upper + volume surge |
-| 7 | **Breakout Confirmed** | EMA stack + volume surge + close > Donchian |
-| 8 | Extension | Price near BB upper |
-| 9 | Exhaustion | RSI ≥ 70 + volume climax |
+| 1 | Not Eligible | Default fallback — insufficient history, or no other rule matched |
+| 2 | Sharp Downtrend | Below EMA200 **and** full bearish stack (EMA10<20<50<200) **and** close below yesterday's Donchian low **and** volume surge (≥1.15× avg) — all four required simultaneously. Sets the permanent Stage-6/7 eligibility flag |
+| 3 | Downtrend | Below EMA200 and bearish stack, but no Donchian breakdown / volume surge |
+| 4 | Below Zone | Below EMA200, close ≤ Bollinger lower band |
+| 5 | Lower Zone | Below EMA200, close between Bollinger lower and mid |
+| 6 | Breakout | Close breaks yesterday's Donchian high, EMA10 > EMA20 — **entry allowed** (requires prior Stage 2) |
+| 7 | **Breakout Confirmed** | Stage 6 conditions **plus** close back above EMA50 — **preferred entry** (requires prior Stage 2). Checked *before* Stage 6 in evaluation order, so a breakout that already reclaimed EMA50 is classified 7, not 6 |
+| 8 | In-Zone | Above EMA200 (hold / manage existing position). Requires a prior Stage 6/7 breakout in the ticker's history, else falls to Stage 1 (`require_breakout_before_inzone`, added 2026-09-15 — see §20; confirmed inert for trading decisions either way) |
+| 9 | In-Zone (Fading) | Above EMA200 but close < EMA10 (momentum turning) — **exit candidate**. Same prior-breakout requirement as Stage 8 |
+
+Volume surge uses `ratio >= 1.15`, not strict `>` (corrected 2026-09-15 — see §20).
 
 ### Execution (Next-Day AM)
-1. NYSE market-hours guard (`_is_nyse_regular_session()`, 09:30–16:00 ET Mon–Fri) — blocks new entries outside regular session; see §5. No holiday calendar yet (§18)
-2. `max_open_positions` cap — hard-enforced, blocks new entries once hit (see §13/§18)
-3. Spider gate check (currently disabled — see §14)
-4. Circuit breaker check — halts if daily DD > 3%, weekly DD > 7%, or 5 consecutive losses
-5. Entry at live broker ask price
-6. Stop: `entry_price - ATR(14) × 2.0`, floor at 0.5% of entry
-7. Position size from active risk mode × gate multiplier (MT5: converted to a broker-valid lot size, see §9.2/§13)
+1. **MT5 position reconciliation** (`_reconcile_mt5_positions()`, added 2026-09-14) — runs first, every cycle. Compares locally-tracked open positions against MT5's real position list; anything the broker already closed (native stop-loss fired during a scheduler outage, etc.) gets reconciled from MT5's own trade history instead of local state silently staying stale. See §20.
+2. NYSE market-hours guard (`_is_nyse_regular_session()`, 09:30–16:00 ET Mon–Fri, **now NYSE-holiday-aware** via the shared calendar in `core/utils/trading_calendar.py`, fixed 2026-09-15 — see §20) — blocks new entries outside regular session; exits are never gated by this
+3. **Stale-signal gate** (added 2026-09-14) — a signal is only valid for entry at its signal date's next trading day open; anything older gets voided and alerted rather than executed late at a materially different setup. See §20
+4. `max_open_positions` cap — hard-enforced, blocks new entries once hit (see §13/§20 for why 100 is unrealistic on a small account)
+5. Spider gate check (currently disabled — matches the backtest's own `spider_gate.enabled: false` for the validated run, see §14)
+6. Circuit breaker check — halts if daily DD > 3%, weekly DD > 7%, or 5 consecutive losses
+7. Entry at live broker ask price, with retry: transient MT5 errors get a fast 3×1s retry; `10018` (Market Closed — IC Markets' ~5min opening pad on regular-session symbols) gets its own patient ~6-minute retry; `no_live_quote` failures get queued and retried every 30s for up to 5 minutes (all added 2026-09-14/15 — see §20)
+8. Stop: `entry_price - max(ATR(14)×2.0, entry_price×0.5%)` (distance-based floor — see the 2026-09-08 fix note below)
+9. Position size from active risk mode × gate multiplier (MT5: converted to a broker-valid lot size via `resolve_mt5_volume()`, clamped to `volume_max` rather than rejected if the target size is oversized — see §13/§20)
 
 ### Exit Hierarchy
 
 Matches ALGO-Stocks `backtest/engine.py` priority order exactly: gap/stop-hit, then Stage 9 fade, then time stop.
 
-1. **Stop hit / gap-protection** → close immediately. Enforced two ways: native broker-side SL sent with every order, plus a daily backstop poll in production for gap-through scenarios.
-2. **Stage 9 (In-Zone Fading) detected** → exit next open. `_check_stage9_exits()` computes each open position's current stage every EOD signal run (reusing the already-fetched TwelveData universe, no extra fetch) and queues Stage-9 positions for exit at the next AM open — matching backtest's "signal at EOD close, exit at next open" timing. Implemented 2026-08-13; previously configured `true` in `production.yaml`'s `exit:` block but not actually implemented (a real backtest-parity gap, now closed — see §18).
-3. **Time stop** — `time_stop_days: 365`, confirmed against the actual validated backtest snapshot (`universe_baseline_v1_20260224_2310`, PF 2.26 / E[R] 0.63), not the generic code fallback of 60 days (a red herring, ruled out 2026-08-13).
+1. **Stop hit / gap-protection** → close immediately. Enforced two ways: native broker-side SL sent with every order, plus a daily backstop poll in production for gap-through scenarios. If the native SL already fired while nothing was polling (outage), reconciliation (above) catches it instead of the backstop poll trying — and failing — to close an already-closed ticket.
+2. **Stage 9 (In-Zone Fading) detected** → exit next open. `_check_stage9_exits()` computes each open position's current stage every EOD signal run (reusing the already-fetched TwelveData universe, no extra fetch) and queues Stage-9 positions for exit at the next AM open — matching backtest's "signal at EOD close, exit at next open" timing.
+3. **Time stop** — `time_stop_days: 365`, confirmed against the actual validated backtest snapshot (`universe_baseline_v1_20260224_2310`, PF 2.26 / E[R] 0.63), not the generic code fallback of 60 days.
+
+**Fixed 2026-09-08: stop-loss floor was inverting the intended ATR stop.** The floor comparison was originally applied to the two candidate *prices* (`max(entry-ATR×mult, entry×(1-floor_pct))`) instead of the two candidate *distances* (`entry - max(ATR×mult, entry×floor_pct)`) — since the floor price is always the higher of the two numbers in that inverted form, the flat 0.5% floor was winning on nearly every trade regardless of the ticker's real ATR, producing suspiciously identical ~0.5% stops across completely different tickers (found via live MT5 trade history showing NFLX/SWKS/ALNY/CEG/CMG/COR/MOS/VOR all landing on the same flat percentage). Now matches the backtest's actual distance-based floor exactly.
 
 **No take-profit exists, by design.** The validated backtest has zero fixed take-profit logic anywhere — exits are stop-loss, Stage 9 fade, or time-stop only. MT5 orders intentionally send `tp: 0.0`. Confirmed directly against the ALGO-Stocks backtest engine before touching any exit code, specifically to avoid introducing new, unvalidated strategy behavior.
 
@@ -412,6 +425,10 @@ Set `active_mode` in `config/risk.yaml`:
 
 Gate multiplier always applied on top.
 
+**Position sizing formula matches the backtest's per-trade target exactly** (`equity * risk_pct * gate_mult / stop_distance`, both sides target ~1% risk in dollar terms) — but see §20 for a real, confirmed methodology difference: the validated backtest sized every trade against its own independent $10,000 reference regardless of how many other trades were concurrently open, while production sizes every trade against ONE shared, live account equity/margin pool. This has no effect on single-trade dollar-risk targeting, but a material effect on how many concurrent positions a small account can actually sustain — read §20 before assuming trade-for-trade parity on a $10k live account.
+
+**No scale-in/pyramiding in production.** The validated backtest's config (`sizing.overlap_mode: "scale_in", max_scale_ins: 2`) allowed up to 2 additional entries on the same ticker while a position was already open. Production's `orchestrator.py` unconditionally skips any signal for an already-open ticker (`pos_mgr.is_open(ticker)` hard-skip) — there is no scale-in path at all. This is the *safer* direction of the deviation (less concentration per name, not more), but it means production is not capturing 100% of whatever edge the validated PF 2.26 figure includes from pyramided legs. See §20.
+
 **MT5 lot sizing (fixed 2026-08-13).** All 5 modes above compute a broker-agnostic "shares" figure — correct as-is for IG, where 1 unit = 1 share. For MT5, that figure now goes through `resolve_mt5_volume()` (`prod/execution/order_builder.py`) before an order is sent: it queries `mt5.symbol_info()` for the symbol's live `contract_size`/`volume_step`/`volume_min`/`volume_max`, floors the target shares to a valid lot size, skips the trade if it rounds below `volume_min`, and logs a warning if lot-step rounding pushes realized risk more than 15% from the configured 1% target. Previously the raw shares figure was sent straight through as MT5 `volume` with no broker-symbol awareness, so real MT5 risk-per-trade could silently diverge from target — see §9.2 and §18.
 
 ---
@@ -424,18 +441,23 @@ Gate multiplier always applied on top.
 
 ---
 
-## 15. Paper vs Live
+## 15. Paper vs Live vs Real Money — Three Separate Switches, Not One
 
-**`environment: "paper"` is the safety guard.**
-- Paper: logs all actions, simulates fills, never calls the broker's order endpoint
-- Live: prompts for `CONFIRM` at startup before any orders placed
+These are three independent settings and it's easy to conflate them. As of 2026-09-15, this system runs with **#1 = live, #2 = demo, #3 = not yet decided** — i.e. real order-routing code paths, against a broker account that is not real money.
 
-Broker demo account (IG `acc_type: DEMO` / MT5 demo login) is additional safety — real API calls but no real money.
+**Switch 1 — `environment: "paper"` vs `"live"` in `config/production.yaml`.** This controls whether `order_executor.py::send_order()` ever calls `mt5.order_send()` at all.
+- `paper`: logs the intended order, fabricates a success response, **never touches the broker**. Nothing appears in the MT5 terminal, ever, regardless of what account is logged in.
+- `live`: calls the real `mt5.order_send()`. Prompts for `CONFIRM` at startup unless `APEX_SCHEDULED=1` is set (scheduler.py sets this automatically so unattended runs don't hang on an `input()` call with no TTY attached).
 
-Switch to live only after:
+**Switch 2 — which MT5 account the terminal is logged into (`.env`: `MT5_LOGIN`/`MT5_SERVER`).** This is set entirely outside this codebase, by whatever credentials are in `.env` and whatever account the MT5 terminal itself is authenticated against. `environment: "live"` has **no knowledge of and no effect on** whether that account is a broker DEMO or a real funded account — it only controls whether order-routing code executes at all. As of 2026-09-09 this is the IC Markets **DEMO** account (`ICMarketsSC-Demo`, account 53003220) — real order routing, real fills, real position tracking, zero real capital at risk.
+
+**Switch 3 — is the account funded with real money.** Independent of both of the above. Moving to real capital means changing `.env` to point at a real, funded MT5 account/server — nothing in `production.yaml` needs to change for this, which is exactly why it's worth stating explicitly: **flipping `environment` to `"live"` does not, by itself, ever risk real money — but once a real account's credentials are in `.env`, `environment: "live"` will place real orders against it with no additional confirmation beyond the one-time `CONFIRM` prompt (or none at all, under the scheduler).**
+
+Recommended validation order before ever pointing `.env` at a funded account:
 1. Paper mode validated (signals generating, sizing correct)
-2. Broker DEMO validated (orders executing, positions tracking)
-3. `environment: "live"` set, and broker set to LIVE credentials
+2. Broker DEMO validated with `environment: "live"` (orders executing, positions tracking, stops firing correctly) — this is where the system currently stands
+3. **Read §20 in full** — the capital-methodology findings there directly affect what "ready" means for a specific real account size
+4. Only then: `.env` credentials swapped to a real, funded account/server
 
 ---
 
@@ -488,6 +510,14 @@ All state in `state/` is auto-created on first run. **Gitignored — does not tr
 - **`SYSTEM_GUIDE.md` deprecated (2026-08-13).** It described the old 20-ticker/yfinance/IG-only design and had drifted badly out of sync (wrong universe size, wrong data source, wrong spider_gate state). Replaced with a short pointer to this README; do not use it for current instructions.
 - **Fixed (2026-08-13): `--reset-circuit-breaker` CLI flag didn't exist.** The circuit-breaker Telegram alert (§19) told operators to run `python run_prod.py --reset-circuit-breaker`, but `run_prod.py` had no such flag — it would have failed with an argparse error at the exact moment someone needed it most. Now implemented: clears the halt via `CircuitBreaker.reset_halt()` and exits (no signals/execution run).
 - **Fixed (2026-08-13): two Telegram message accuracy bugs.** (1) `alert_signal_found()` hardcoded "(Breakout Confirmed)" for every signal regardless of actual stage — wrong for Stage 6 ("Breakout") signals. Now uses the signal's real `stage_name`. (2) `alert_order_rejected()` always said "no position opened" in its footer, which is backwards when it fires for a failed EXIT (the position is still open, not absent). Now takes an `is_exit` flag and shows the correct footer for each case. See §19.
+- **Fixed (2026-09-08): stop-loss floor inversion bug.** See §12 exit hierarchy — every live stop was landing at a flat ~0.5% regardless of ticker, because the floor was applied to candidate prices instead of candidate distances. This was arguably the most consequential fix to date, since it silently affected every single trade's stop placement.
+- **Fixed (2026-09-08/09): MT5 execution hardening batch.** `ensure_symbol_selected()`/`get_live_tick()` added to fix `symbol_info_tick()` returning stale/zero quotes for freshly-selected symbols (found via BTU). Telegram sends now throttled (3.1s spacing, retry-with-backoff on HTTP 429). `resolve_mt5_volume()`'s large-deviation case changed from a hard skip to accepting the largest valid lot at reduced (never excess) risk — floor-only rounding structurally guarantees realized risk ≤ target, so the skip was discarding legitimate trades, disproportionately on cheap/volatile names, for no safety benefit.
+- **Added (2026-09-09): signal-replay dedup ledger.** `state/run_state.json` gained `fired_signals` (`StateManager.has_fired_signal`/`record_fired_signals`) so re-running signal generation against an unchanged cache can't re-detect and re-queue the same (ticker, signal_date) transition.
+- **Added (2026-09-09): global logging fix.** `setup_logger()` now configures the root logger, not a logger literally named `"apex"` — every module's bare-named logger (`"scheduler"`, `"order_builder"`, etc.) is a child of root by default, not of a same-named-but-unrelated `"apex"` logger, so console/file output was silently dropping most modules' logs before this fix.
+- **Added (2026-09-14): MT5 position reconciliation (`_reconcile_mt5_positions()`).** Root cause: every entry gets a native broker-side stop-loss that MT5 enforces continuously regardless of whether the scheduler is running. If it fires during an outage, the broker closes the position for real but local state never finds out — the next exit-check poll then tries to manually re-close an already-closed ticket (`retcode=10013 Invalid Request`, found via BSVN 2026-09-09) and, because that failed, the position stayed marked open locally forever. Reconciliation now runs first, every cycle, and pulls the real closing price/time from MT5's own trade history to correct local state. Also surfaced (and fixed) that `_is_nyse_regular_session()` had no NYSE holiday awareness at all — now uses the same shared calendar as everything else (§20).
+- **Added (2026-09-14): stale-signal void gate.** A signal is only valid for entry at its signal date's *next* trading day open. Previously, if execution didn't run during market hours for one or more full days (scheduler outage), `pending_signals` survived indefinitely and got executed as if fresh whenever a run finally happened — found when signals up to ~a week old were about to execute after a multi-day gap. Now voided and alerted instead.
+- **Added (2026-09-14): patient retry for `10018` (Market Closed) and extended `no_live_quote` retry window.** IC Markets appears to pad regular-session (non-`-24`) US-stock CFDs by ~5 minutes after the official NYSE open before routing live orders. The old shared retry budget (3×1s ≈ 3 seconds) gave up long before that elapsed; `10018` now gets its own ~6-minute patient retry. Separately, entries that fail specifically with `no_live_quote` (thin symbols whose quote stream is slow to populate right at open) get queued and retried every 30s for up to 5 minutes before being voided, instead of failing on the first check.
+- **Added (2026-09-15): retry-until-converged cache refresh in `scheduler.py`.** `build_td_cache.py` is idempotent (already-fresh tickers are zero-cost skips), so the cache-refresh job now re-runs it in bounded rounds after a multi-day gap, stopping as soon as the error count hits zero or stops improving between rounds (remaining errors past that point are permanent — delisted/wrong-suffix/plan-restricted symbols — not worth infinite retrying).
 - **Four alert functions exist in `alert.py` but are not currently called anywhere:** `alert_spider_gate_block`, `alert_run_summary`, `alert_startup`, `alert_connection_failed`. Spider gate is disabled so that one is moot for now, but `alert_connection_failed` in particular is a real blind spot — if MT5/IG login fails at startup, nothing is sent to Telegram (the failure only surfaces as a crashed process / local log entry, or a generic scheduler-level retry alert with no broker-specific detail). See §19 for what this means for current coverage.
 
 ---
@@ -637,3 +667,53 @@ Error:   MT5 login failed: (10004, 'Invalid account')
 ```
 
 **For manager reporting:** the honest summary is "7 of 11 alert types are live — every signal, every fill, every rejection (entry or exit), every close, every circuit-breaker trip, and every operational error reaches Telegram today. The 4 that don't are lower-priority (run summaries, startup pings) except connection-failure alerting, which is worth prioritizing next since it's currently a genuine blind spot for unattended runs."
+
+---
+
+## 20. Pre-Live Audit (2026-09-15) — Backtest Parity Findings & $10k Readiness
+
+A full line-by-line audit against the actual ALGO-Stocks backtest source (not the code comments claiming parity — the real `.py` files that produced `universe_baseline_v1_20260224_2310`, PF 2.26 / E[R] 0.63), done before committing real capital. Traced every claim through actual import chains rather than trusting docstrings. Four categories below: fixed, confirmed-fine, confirmed-different-but-safe, and the one finding that needs a decision before real money is involved.
+
+### 20.1 Fixed — confirmed real discrepancies, corrected
+
+- **Volume surge operator.** `core/features/technicals/pipeline.py` used strict `>` under a comment claiming "backtest uses strict >". The actual backtest (`ALGO-Stocks/stages/stage_classifier.py::classify_stage`) uses `>=`. Corrected. Practical impact was already near-zero (an exact float equality on a live ratio is vanishingly rare) but the comment was factually wrong and now isn't.
+- **`require_breakout_before_inzone` gate — declared in config, never implemented.** `config/stages.yaml` has carried `stage_logic.require_breakout_before_inzone: true` since it was written (correctly matching the real backtest's own `config/stages.yaml` value), but `core/stages/stage_classifier.py` never actually read or applied it — Stage 8/9 could be assigned to a ticker with no prior Stage 6/7 breakout in its history, which the backtest would have forced to Stage 1. **Confirmed inert for every actual trading decision in this system**: Stage 8/9 never gate entries (only 6/7 do), and the only consumer of Stage 9 (`_check_stage9_exits`) only ever classifies tickers that already have an open position — which, by construction, can only exist via a prior real Stage 6/7 entry. So the gap never changed a real order. Implemented anyway, for correct stage reporting/debugging fidelity (`classify_row()` now takes a `seen_breakout` expanding flag, mirroring `stage2_seen`'s pattern).
+- **No explicit minimum-history gate.** The backtest hard-forces Stage 1 until a ticker has ≥260 real bars, regardless of individual indicator warmup (EMA200 alone only needs 200). Production only had the looser, incidental 200-bar EMA warmup with no explicit 260-day floor — a ticker with 200-259 days of history could reach real stage classification in production up to ~60 days earlier than the backtest ever would have. Added `min_history_days: 260` to `config/stages.yaml`, enforced in `SignalGenerator.generate()`/`current_stage()`. Practical exposure was already narrow — this universe is established, liquid US equities almost always well past 260 days of history — but now closed exactly rather than incidentally.
+- **`_is_nyse_regular_session()` had no NYSE holiday awareness**, despite its own docstring admitting it and this exact gap already being solved elsewhere in the codebase (the shared `NYSE_HOLIDAYS` calendar built 2026-09-08 for the cache-freshness check). Now uses `core/utils/trading_calendar.py::is_trading_day()` too.
+
+### 20.2 Confirmed fine — checked, no action needed
+
+- **ATR(14):** byte-for-byte identical formula to the backtest's `_compute_atr()` (Wilder smoothing, `alpha=1/period`, same True Range formula) — confirmed by direct comparison, not inference.
+- **EMA/Bollinger/Donchian:** production's `apply_indicators()` matches `ALGO-Stocks/features/technicals/indicators.py` (the module the real pipeline actually imports — there's a second, unused legacy `ema.py`/`donchian.py`/`bollinger.py` set in that repo with a slightly different EMA signature; traced the import chain and confirmed production mirrors the one that's actually wired in, not the dead code).
+- **Position sizing dollar-risk target:** `equity * risk_pct * gate_mult / stop_distance` — same formula, same 1% default, matches the backtest's per-trade risk target exactly in spirit (see 20.3 for the real nuance).
+- **Spider gate disabled in both systems.** Production's `gate=False` matches the actual validated run's `backtest.yaml: spider_gate.enabled: false` — not an oversight, a genuine match.
+- **Stop distance floor formula:** `max(ATR×2.0, entry×0.5%)` on the *distance*, matches the backtest's `stop_distance = max(atr_dist, min_stop_distance)` exactly (this is the fix from 2026-09-08 — now confirmed against source, not just re-derived from the bug report).
+- **Position/portfolio P&L math** (`position_manager.py`, `portfolio_tracker.py`): standard, correct `pnl_per_share = exit - entry`, `pnl_total = pnl_per_share × shares`, `pnl_r = pnl_per_share / stop_distance`. No issues found.
+- **Circuit breaker:** live-only safety overlay with no backtest equivalent needed (it protects against real execution/data anomalies, not part of what generated PF 2.26). Logic is straightforward and correct: daily/weekly drawdown vs. a once-per-period baseline, consecutive-loss streak reset on any non-negative trade.
+
+### 20.3 Confirmed different, but the safer direction
+
+- **No scale-in/pyramiding.** The actual validated backtest config (`ALGO-Stocks/config/backtest.yaml: sizing.overlap_mode: "scale_in", max_scale_ins: 2`) allowed up to 2 additional entries on the same ticker while a position was already open, each independently risk-sized — confirmed genuinely active in `09B_run_backtest.py`'s trade-generation loop, not a dormant flag. Production's `orchestrator.py` unconditionally skips any signal for an already-open ticker; there is no scale-in path. This means production will **never take on more concentrated same-name risk than the backtest did**, but it also means production isn't capturing whatever fraction of the validated edge came from pyramided legs — the honest framing is "conservative simplification," not "bug," but it does mean PF 2.26 / E[R] 0.63 aren't a perfectly apples-to-apples comparison for a strictly single-entry-per-ticker system.
+
+### 20.4 The one finding that needs a decision before real money — concurrent-position capital sizing
+
+This is a methodology difference, not a code bug, and it's the most important thing in this document.
+
+**How the backtest actually measured PF 2.26 / E[R] 0.63:** traced directly through `ALGO-Stocks/backtest/engine.py` and `research/experiments/09F_full_universe_portfolio.py`. Every single trade — regardless of how many other trades were open on the same ticker or across the whole universe on the same day — was sized against its own **independent, fixed $10,000 reference** (`sizing.account_equity: 10000.0`, `VIRTUAL_ACCOUNT_PER_TRADE = 10_000.0`). A day with 30 concurrent signals in the backtest effectively assumed $300,000 of independent backing capital (30 × $10k), each slot fully resourced, none competing with any other for capital. The portfolio-level equity curve used for the headline drawdown/PF/E[R] reporting was then reconstructed *afterward* by blending these independent per-trade P&L streams against a "reference capital" of `avg_concurrent_positions × $10,000` — explicitly documented in 09F's own code comments as necessary specifically because summing the literal independent virtual accounts "grows monotonically" and produces meaningless drawdown figures otherwise.
+
+**How production actually sizes trades:** one real account, one real equity/margin pool (`self.connector.get_equity()` — the live, fluctuating MT5 account value), 1% of *that* risked per trade, every trade drawing from the same shared pot. This is the standard, correct way to run a real trading account — there's no other sane way to do it with one real account — but it is structurally incompatible with "give every concurrent slot its own undiminished $10,000" once more than roughly one position is open at a time, because a real account only has the margin it has.
+
+**What this means concretely for a $10,000 live account:** the per-trade dollar-risk target itself is correctly calibrated (1% of $10k = $100/trade, matching the backtest's own per-trade target almost exactly at account inception). What will *not* replicate is capacity: this session's own logs show signal batches of 12, 15, 19, and 30 tickers firing on single days. The backtest assumed every one of those could be independently, fully resourced. A real $10k account, once realistic (non-demo) retail leverage is applied — IC Markets' demo account leverage of 1:5000 seen throughout this session's testing is not representative of what a real regulated retail account gets, which is typically far lower — will run out of usable margin after a small number of concurrent positions, well short of the historical concurrency the backtest experienced. Expect materially fewer trades to actually execute than signals generated, concentrated to whichever fire first when a large batch appears, with the rest rejected on `NO_MONEY` (retcode 10019, already a correctly-handled fatal/no-retry code in `order_executor.py`).
+
+**Important nuance:** this does **not** mean the strategy's *edge* is invalid on a small account — PF and E[R] are per-trade ratios, not equity-curve-dependent, so whichever trades a $10k account *can* actually take should exhibit similar per-trade statistics to the backtest, since each one is sized the same way (1% risk, same ATR stop). What changes is *participation rate* and *realized portfolio-level return*, not the per-trade edge itself.
+
+**Decision points for Nish before funding a real account, not something to silently code around:**
+1. Confirm the real broker account's actual leverage/margin terms (not the 1:5000 demo figure) before assuming any particular number of concurrent positions is achievable.
+2. Consider whether `portfolio.max_open_positions: 100` should be reduced to something a $10k account can realistically ever reach, purely so the config reflects reality rather than a cap that will never bind.
+3. Decide whether reduced participation on high-signal-count days (taking the first N that fit in available margin, rejecting the rest) is an acceptable operating mode, or whether `risk_pct_per_trade` should be lowered to stretch the same $10k across more concurrent slots (trading dollar-risk-per-trade against concurrency-capacity — a real tradeoff, not a free fix).
+4. None of this is blocking for continuing to validate on the MT5 DEMO account (§15) — it only matters at the moment real capital actually goes into `.env`.
+
+### 20.5 Minor, non-blocking cleanup items noted but not touched
+
+- `config/stages.yaml`'s `entry_stages: [6, 7]` and `config/production.yaml`'s `entry.stage_target: 7` are both dead config keys — the actual code uses a hardcoded `ENTRY_STAGES = {6, 7}` constant in `signal_generator.py` that never reads either. Values currently agree, so no functional issue, but changing the config today would silently do nothing.
+- `config/risk.yaml`'s per-mode `max_position_pct` sub-keys (e.g. `equity_pct.max_position_pct: 0.20`) are similarly unread — `position_sizer.py` only consults `production.yaml`'s single `portfolio.max_single_position_pct`. Values agree (both 0.20) but this is a duplicate, unwired source of truth worth consolidating eventually.

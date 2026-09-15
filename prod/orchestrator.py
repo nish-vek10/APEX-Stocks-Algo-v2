@@ -85,7 +85,7 @@ from prod.risk.circuit_breaker import CircuitBreaker
 from prod.risk.position_sizer import compute_position_size
 from prod.signals.signal_generator import SignalGenerator
 from prod.state.state_manager import StateManager
-from core.utils.trading_calendar import next_trading_day
+from core.utils.trading_calendar import next_trading_day, is_trading_day
 
 ROOT = Path(__file__).resolve().parents[1]
 logger = logging.getLogger("orchestrator")
@@ -239,16 +239,20 @@ class APEXOrchestrator:
     def _is_nyse_regular_session() -> bool:
         """
         True iff "now" falls within NYSE regular trading hours (09:30-16:00
-        ET, Mon-Fri), using an IANA timezone so this is automatically DST-
-        correct year-round (see scheduler.py for the matching cron trigger).
+        ET, Mon-Fri, excluding NYSE holidays), using an IANA timezone so
+        this is automatically DST-correct year-round (see scheduler.py for
+        the matching cron trigger).
 
-        Does NOT account for NYSE market holidays (Thanksgiving, Christmas,
-        etc.) -- there is no holiday calendar wired in yet. On a holiday
-        this will incorrectly report the session as open; MT5/IG order
-        rejection is the current backstop for that gap.
+        Holiday check added 2026-09-15 (pre-live audit) using the same
+        shared NYSE_HOLIDAYS calendar as build_td_cache.py and the
+        stale-signal gate -- this function previously admitted in its own
+        docstring that it had no holiday awareness at all, silently relying
+        on MT5/IG's own order rejection as the only backstop on a holiday.
         """
         now_et = datetime.now(ZoneInfo("America/New_York"))
         if now_et.weekday() >= 5:  # Sat=5, Sun=6
+            return False
+        if not is_trading_day(now_et.date()):
             return False
         return dt_time(9, 30) <= now_et.time() <= dt_time(16, 0)
 

@@ -24,7 +24,22 @@ DESIGN LOCKS (do not change without re-running full backtest):
     - Stage 7 does NOT require volume surge (volume is informational only)
     - Stage 2 prerequisite is enforced at SIGNAL GENERATOR level, not here
     - Stage 2 requires ALL FOUR conditions simultaneously
-    - Volume surge uses strict > (not >=)
+    - Volume surge uses >= (not strict >) -- corrected 2026-09-15; this file
+      previously claimed strict > under an incorrect comment. Verified
+      against the actual backtest source (ALGO-Stocks stages/stage_classifier.py
+      ::classify_stage, confirmed as the real input to 08B_classify_stock_stages.py
+      which produced the validated PF 2.26 run's stage labels). See
+      core/features/technicals/pipeline.py's volume_surge computation.
+    - Stage 8/9 require a prior Stage 6/7 breakout somewhere in the ticker's
+      history (stage_logic.require_breakout_before_inzone in config/stages.yaml,
+      default True here to match the backtest's actual stages.yaml value) --
+      otherwise they fall through to Stage 1. Added 2026-09-15; previously
+      declared in config but never implemented. Confirmed inert for live
+      trading decisions either way (Stage 8/9 never gate entries, and the
+      only production consumer of Stage 9 -- _check_stage9_exits -- only
+      ever classifies tickers with an already-open position, which by
+      construction always had a real Stage 6/7 entry already), but fixed
+      for full backtest-label fidelity and correct reporting.
 """
 from __future__ import annotations
 
@@ -71,7 +86,11 @@ def _ok(v: Any) -> bool:
         return False
 
 
-def classify_row(row: Any, stage2_seen: bool, cfg: Dict[str, Any]) -> int:
+def _require_breakout_before_inzone(cfg: Dict[str, Any]) -> bool:
+    return bool((cfg or {}).get("stage_logic", {}).get("require_breakout_before_inzone", False))
+
+
+def classify_row(row: Any, stage2_seen: bool, cfg: Dict[str, Any], seen_breakout: bool = True) -> int:
     """
     Classify one OHLCV+indicators row into a stage (1–9).
 
@@ -79,6 +98,14 @@ def classify_row(row: Any, stage2_seen: bool, cfg: Dict[str, Any]) -> int:
     stage2_seen: expanding-window flag — True if Stage 2 ever printed for this ticker.
                  NOTE: stage2_seen does NOT gate Stage 7 here (backtest design).
                  The Stage 2 prerequisite is applied in signal_generator.py.
+    seen_breakout: expanding-window flag — True if Stage 6/7 ever printed for
+                 this ticker (as of any PRIOR row; today's own 6/7 outcome,
+                 if any, can't collide with the 8/9 gate below since a row
+                 is classified into exactly one stage). Gates Stage 8/9 to
+                 Stage 1 when stage_logic.require_breakout_before_inzone is
+                 set (see config/stages.yaml). Defaults to True so callers
+                 that don't track this (none currently) fail open rather
+                 than silently forcing everything to Stage 1.
     """
     close = _s(row, "close", np.nan)
     if not _ok(close):
@@ -141,11 +168,15 @@ def classify_row(row: Any, stage2_seen: bool, cfg: Dict[str, Any]) -> int:
     # ── Stage 9 — In-Zone Fading (EXIT signal) ────────────────────────────────
     # Above EMA200 but close has fallen below EMA10 (momentum turning)
     if above_ema200 and _ok(ema10) and close < ema10:
+        if _require_breakout_before_inzone(cfg) and not seen_breakout:
+            return 1
         return 9
 
     # ── Stage 8 — In-Zone (hold, position active) ────────────────────────────
     # Simply above EMA200 — trend intact, position continuing
     if above_ema200:
+        if _require_breakout_before_inzone(cfg) and not seen_breakout:
+            return 1
         return 8
 
     # ── Stage 1 — Not Eligible (default) ─────────────────────────────────────
@@ -159,11 +190,14 @@ def classify_stages(df: pd.DataFrame, cfg: Dict[str, Any]) -> pd.DataFrame:
     """
     stages: list[dict] = []
     stage2_seen = False
+    seen_breakout = False
 
     for row in df.itertuples(index=False):
-        s = classify_row(row, stage2_seen, cfg)
+        s = classify_row(row, stage2_seen, cfg, seen_breakout)
         if s == 2:
             stage2_seen = True
+        if s in (6, 7):
+            seen_breakout = True
         stages.append({
             "stage":        s,
             "stage_name":   STAGE_NAMES.get(s, "Unknown"),
@@ -210,12 +244,25 @@ class StageClassifier:
         self._mem_file.write_text(json.dumps(data, indent=2), encoding="utf-8")
 
     def classify(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Classify full df; updates and persists Stage 2 memory."""
+        """
+        Classify full df; updates and persists Stage 2 memory.
+
+        seen_breakout (for the require_breakout_before_inzone gate) is
+        intentionally NOT persisted like stage2_seen is -- it's recomputed
+        fresh from this call's df every time, matching the backtest exactly
+        (ALGO-Stocks' run_stage_classifier also recomputes it from scratch
+        via an expanding slice over the full df in one shot, never across
+        separate invocations). Since production always passes the full
+        lookback window (300-360 days) on every call, this is equivalent.
+        """
         stages: list[dict] = []
+        seen_breakout = False
         for row in df.itertuples(index=False):
-            s = classify_row(row, self._stage2_seen, self.cfg)
+            s = classify_row(row, self._stage2_seen, self.cfg, seen_breakout)
             if s == 2:
                 self._stage2_seen = True
+            if s in (6, 7):
+                seen_breakout = True
             stages.append({
                 "stage":         s,
                 "stage_name":    STAGE_NAMES.get(s, "Unknown"),

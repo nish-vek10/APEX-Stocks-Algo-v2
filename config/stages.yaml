@@ -10,6 +10,20 @@
 stage_logic:
   require_breakout_before_inzone: true   # Stage 8/9 require prior Stage 6/7 in history
 
+# ── Minimum history gate ────────────────────────────────────────────────────────
+# Backtest's stages/stage_classifier.py::classify_stage() hard-forces Stage 1
+# until a ticker has at least this many real bars, REGARDLESS of individual
+# indicator warmup (EMA200 needs only 200 bars to stop being NaN, which is
+# looser than this 260-day floor by ~60 days/bars). Added 2026-09-15 -- core/
+# stages/stage_classifier.py previously had no equivalent explicit check, only
+# relying on incidental EMA200 NaN-gating, which could let a ticker with
+# 200-259 days of history reach real stage classification earlier in
+# production than the validated backtest ever would have. In practice this
+# live universe's tickers are established, liquid names almost always well
+# past 260 days of history already, so the practical exposure is narrow (a
+# ticker in its first year of trading) -- but this closes the gap exactly.
+min_history_days: 260
+
 # ── Stage 2 prerequisite (applied in signal_generator.py, not classifier) ──────
 # Once a ticker prints Stage 2, it is eligible-in-principle for Stage 6/7 entry.
 # This memory is expanding + permanent — stored in state/stage2_memory.json.

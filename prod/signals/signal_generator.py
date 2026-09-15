@@ -74,6 +74,11 @@ class SignalGenerator:
         self.state_dir  = Path(state_dir)
         self._atr_period = prod_cfg.get("stop", {}).get("atr_period", 14)
         self._require_stage2 = prod_cfg.get("entry", {}).get("require_stage2_history", True)
+        # Backtest's classify_stage() hard-forces Stage 1 until a ticker has
+        # this many real bars, regardless of individual indicator warmup
+        # (EMA200 alone only needs 200). Added 2026-09-15 to close a gap
+        # found during the pre-live audit -- see config/stages.yaml.
+        self._min_history_days = int(stage_cfg_dict.get("min_history_days", 260))
 
     def generate(
         self,
@@ -91,8 +96,12 @@ class SignalGenerator:
           close, atr, entry_open (NaN — filled at execution),
           stop_price (NaN — recalculated at entry_open)
         """
-        if df.empty or len(df) < 50:
-            logger.debug(f"{ticker}: insufficient bars ({len(df)})")
+        if df.empty or len(df) < self._min_history_days:
+            logger.debug(
+                f"{ticker}: insufficient history ({len(df)} bars < "
+                f"{self._min_history_days} min_history_days -- matches backtest's "
+                f"hard cutoff, not just individual indicator warmup)"
+            )
             return None
 
         # ── Apply indicators ──────────────────────────────────────────────────
@@ -188,9 +197,12 @@ class SignalGenerator:
 
         Runs the identical indicator+classifier pipeline as generate(), just
         returns the raw latest stage instead of gating it into an entry
-        signal.
+        signal. Uses the same min_history_days floor as generate() for
+        consistency -- in practice always satisfied here anyway, since a
+        position can only exist via a prior generate() entry signal, which
+        already enforced this same gate.
         """
-        if df.empty or len(df) < 50:
+        if df.empty or len(df) < self._min_history_days:
             return None
         df = apply_indicators(df, self.ind_cfg)
         classifier = StageClassifier(ticker, self.state_dir, self.stage_cfg)

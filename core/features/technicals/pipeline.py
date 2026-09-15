@@ -99,7 +99,15 @@ def apply_indicators(df: pd.DataFrame, cfg: IndicatorConfig) -> pd.DataFrame:
     # ── Volume ────────────────────────────────────────────────────────────────
     df["volume_avg"] = volume.rolling(cfg.volume_avg_window, min_periods=cfg.volume_avg_window).mean()
     df["volume_ratio"] = volume / df["volume_avg"].replace(0, np.nan)
-    df["volume_surge"] = df["volume_ratio"] > cfg.volume_surge_mult   # backtest uses strict >
+    # Backtest's actual stage classifier (ALGO-Stocks stages/stage_classifier.py
+    # ::classify_stage -- confirmed by tracing 08B_classify_stock_stages.py's
+    # import chain, the real source of the validated PF 2.26 run's stage
+    # labels) uses `rv >= threshold`, NOT strict `>`. Corrected 2026-09-15 --
+    # this file previously used strict `>` under an incorrect "backtest uses
+    # strict >" comment. Practical impact is negligible (an exact float
+    # equality on a live volume ratio is vanishingly rare), but this
+    # restores literal parity rather than leaving a known, avoidable drift.
+    df["volume_surge"] = df["volume_ratio"] >= cfg.volume_surge_mult
 
     # ── Rate of Change (5-day) — used for Stage 2 rapid decline detection ────
     # Backtest requires >5% decline over 3-5 trading days for genuine dislocation
