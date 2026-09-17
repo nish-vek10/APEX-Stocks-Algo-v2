@@ -47,6 +47,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from apscheduler.schedulers.blocking import BlockingScheduler
+from apscheduler.executors.pool import ThreadPoolExecutor
 from apscheduler.events import EVENT_JOB_ERROR, EVENT_JOB_EXECUTED
 from dotenv import load_dotenv
 
@@ -378,7 +379,24 @@ def main() -> None:
         ),
     )
 
-    scheduler = BlockingScheduler(timezone=SCHED_TZ)
+    # single-worker executor: APScheduler's default lets different jobs run
+    # concurrently on separate threads -- fine normally, but a slow
+    # cache_refresh (multi-day catch-up, rate-limit backoffs) can still be
+    # mid-flight when the signals cron fires 20 minutes later, letting
+    # signal generation read a HALF-updated cache: tickers already
+    # refetched show fresh data, tickers not yet reached show whatever was
+    # cached before. Found 2026-09-17: 11 tickers logged frozen 2026-09-14
+    # signal values on the 2026-09-16 17:05 ET run while others came through
+    # fresh, traced to cache_refresh still being on round 1/batch ~10-of-30
+    # at the exact moment signals ran. Forcing a single worker thread means
+    # every job (cache refresh, signals, execution, heartbeat) runs strictly
+    # one at a time -- a job whose cron time arrives while another job still
+    # holds the one worker simply waits (up to each job's misfire_grace_time
+    # of 1800s) instead of racing it.
+    scheduler = BlockingScheduler(
+        timezone=SCHED_TZ,
+        executors={"default": ThreadPoolExecutor(max_workers=1)},
+    )
     scheduler.add_listener(on_job_event, EVENT_JOB_ERROR)
 
     # Daily TwelveData cache refresh — MUST run before signals, otherwise
