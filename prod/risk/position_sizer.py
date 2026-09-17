@@ -40,6 +40,14 @@ def compute_position_size(
         logger.warning(f"Invalid entry_price={entry_price} for {signal.get('ticker')}")
         return _zero_result(mode, gate_risk_mult)
 
+    min_entry_price = float(risk_cfg.get("global", {}).get("min_entry_price", 0.0))
+    if min_entry_price > 0 and entry_price < min_entry_price:
+        logger.info(
+            f"{signal.get('ticker')}: entry_price={entry_price:.2f} below "
+            f"min_entry_price={min_entry_price:.2f} — skipped."
+        )
+        return _zero_result(mode, gate_risk_mult)
+
     stop_distance = entry_price - stop_price
     if stop_distance <= 0:
         logger.warning(

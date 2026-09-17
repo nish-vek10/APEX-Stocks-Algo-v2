@@ -60,3 +60,16 @@ global:
   min_shares: 1
   max_shares: 10000
   min_position_value: 100.0   # Skip if position value < $100
+
+  # Optional entry-price floor. Off by default (0.0 = no filter, matches
+  # backtest exactly, zero behavior change). Found 2026-09-17: SABR at
+  # $2.42/share hit MT5's lot-step rounding granularity so hard that
+  # realized risk landed 68.4% below the 1% target ($273.80 vs $866.02) --
+  # sub-$5 names are where this shows up because whole-share/lot-step
+  # rounding is a much bigger fraction of the position at low prices. Set
+  # e.g. 5.0 to skip signals below $5/share if this keeps happening and you
+  # decide the risk-sizing drift isn't worth it. Filtering by price was
+  # never tested in the ALGO-Stocks backtest, so treat this as a live-only
+  # safety valve, not a backtest-matched setting -- changing it from 0.0 is
+  # a deliberate deviation from the validated strategy, not a bug fix.
+  min_entry_price: 0.0

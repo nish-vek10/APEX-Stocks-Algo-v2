@@ -25,6 +25,25 @@ mt5:
 
 # ─── Universe ──────────────────────────────────────────────────────────────────
 universe:
+  # Confirmed permanently unfetchable via TwelveData as of 2026-09-14 --
+  # delisted, wrong ticker suffix for TD's symbol format, or plan-restricted
+  # (EA). These fail the same way every single day and were spamming the
+  # daily "APEX cache refresh -- residual errors" Telegram alert with the
+  # exact same 7-9 names round after round for no reason -- excluded here so
+  # build_td_cache.py and the orchestrator both skip them outright instead
+  # of re-attempting and re-erroring on them every cache refresh cycle.
+  # If TwelveData's plan/coverage changes and one of these becomes fetchable
+  # again, just remove it from this list.
+  excluded_tickers:
+    - AAC-U
+    - BF-A
+    - CRD-A
+    - EA
+    - HEI-A
+    - LPRO
+    - MOG-A
+    - SKYT
+    - UHAL-B
   # Universe: 20 US tech/growth stocks confirmed available on IG demo CFD account
   # Original S&P 500 diversified universe replaced -- JPM/JNJ/V/UNH/XOM/WMT/PG/MA/HD/CVX/MRK/ABBV/PEP
   # not available on this IG account as 24h cash CFDs.
@@ -2994,7 +3013,14 @@ circuit_breakers:
   daily_drawdown_halt_pct: 0.03
   weekly_drawdown_halt_pct: 0.07
   consecutive_loss_halt: 5
-  enabled: true
+  # Temporarily disabled 2026-09-17 for demo-account testing -- Nish doesn't
+  # want execution halting on losing streaks while validating the pipeline
+  # on the $100k IC Markets demo. Re-check the mid-run gate added in
+  # orchestrator.py (run_execution, right after _process_exits) is still in
+  # place and will take effect the moment this is flipped back to true --
+  # no other code change needed to re-enable before going anywhere near a
+  # real-funded account.
+  enabled: false
 
 # Documentation only -- scheduler.py owns the actual cron trigger and reads
 # APEX_SIGNAL_HOUR/MIN, APEX_EXEC_HOUR/MIN env vars (defaults below) against

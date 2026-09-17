@@ -101,7 +101,8 @@ def utc_now_iso() -> str:
 
 def load_universe_tickers() -> List[str]:
     cfg = yaml.safe_load(PRODUCTION_YAML.read_text(encoding="utf-8"))
-    return sorted({str(t).strip().upper() for t in cfg["universe"]["tickers"]})
+    excluded = {str(t).strip().upper() for t in cfg["universe"].get("excluded_tickers", [])}
+    return sorted({str(t).strip().upper() for t in cfg["universe"]["tickers"]} - excluded)
 
 
 def normalize_ohlcv(df: pd.DataFrame) -> pd.DataFrame:

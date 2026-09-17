@@ -118,7 +118,12 @@ class APEXOrchestrator:
         self.portfolio = PortfolioTracker(state_dir)
         self.run_logger = RunLogger(log_dir)
 
-        tickers = self.prod_cfg.get("universe", {}).get("tickers", [])
+        universe_cfg = self.prod_cfg.get("universe", {})
+        excluded = {str(t).strip().upper() for t in universe_cfg.get("excluded_tickers", [])}
+        tickers = [
+            t for t in universe_cfg.get("tickers", [])
+            if str(t).strip().upper() not in excluded
+        ]
 
         # Broker-specific init
         if self.broker == "ig":
@@ -398,6 +403,31 @@ class APEXOrchestrator:
                     "no new entries this run. %d signal(s) remain queued for next execution run.",
                     len(self.state_mgr.get_pending_signals()),
                 )
+                return
+
+            # Re-check circuit breaker AFTER exits/reconciliation, BEFORE any
+            # new entry. The check at the top of this function only reflects
+            # state from the END of the PREVIOUS run -- record_trade_result()
+            # calls inside _reconcile_mt5_positions()/_process_exits() above
+            # can trip the breaker mid-run (e.g. 5 straight broker-side stop
+            # losses discovered during reconciliation), and without this
+            # second check the entry loop below would still fire on the
+            # signals queued for this same run, opening fresh risk in the
+            # same breath the breaker just halted. Found 2026-09-17: a
+            # forced manual execution run closed 5 consecutive losers via
+            # reconciliation/exits, tripped consecutive_losses_5 partway
+            # through, then went on to open 6 brand-new positions anyway
+            # because this function never looked at the breaker again after
+            # its very first check.
+            cb_mid_run = self.circuit_breaker.check(self.connector.get_equity(), today)
+            if not cb_mid_run["allowed"]:
+                logger.critical(
+                    "Circuit breaker tripped mid-run (%s) -- skipping all new entries "
+                    "this run. Exits/reconciliation above already completed.",
+                    cb_mid_run["reason"],
+                )
+                alert_circuit_breaker(cb_mid_run["reason"])
+                self.run_logger.log_circuit_breaker(cb_mid_run["reason"])
                 return
 
             # Portfolio cap check
