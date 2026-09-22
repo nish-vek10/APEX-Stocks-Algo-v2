@@ -37,6 +37,7 @@ Deploy on Railway:
 """
 from __future__ import annotations
 
+import json
 import logging
 import os
 import re
@@ -329,12 +330,25 @@ def job_execution() -> None:
 _scheduler_ref: BlockingScheduler | None = None
 
 
+HEARTBEAT_FILE = ROOT / "state" / "heartbeat.json"
+
+
 def job_heartbeat() -> None:
     """
     Prints every HEARTBEAT_MIN minutes so it's visible at a glance in the
     PowerShell window that the process is still alive and hasn't silently
     died -- distinct from the job-specific logging, this fires
     independently of whether cache/signals/execution jobs have run yet.
+
+    Also writes state/heartbeat.json with the current UTC timestamp. This
+    is what tools/watchdog.py checks -- a SEPARATE, independently-scheduled
+    script (Windows Task Scheduler, not this process) that alerts via
+    Telegram if this file goes stale. Found 2026-09-21/22: this scheduler
+    process was left dead (closed terminal / PC restart) over a weekend
+    with nobody noticing until the next status check, missing a full
+    trading day's execution. A heartbeat that only logs to a file nobody's
+    watching doesn't help if the process itself is what died -- the
+    watchdog has to run independently of this process to ever catch that.
     """
     now_et = datetime.now(timezone.utc).astimezone()
     line = f"[HEARTBEAT] {now_et.strftime('%Y-%m-%d %H:%M:%S %Z')} -- scheduler alive."
@@ -346,6 +360,15 @@ def job_heartbeat() -> None:
             line += f"\n  {job.name} -> next: {next_run if next_run is not None else 'unknown'}"
     print(line)
     logger.info(line)
+
+    try:
+        HEARTBEAT_FILE.parent.mkdir(parents=True, exist_ok=True)
+        HEARTBEAT_FILE.write_text(
+            json.dumps({"last_heartbeat_utc": datetime.now(timezone.utc).isoformat()}),
+            encoding="utf-8",
+        )
+    except Exception:
+        logger.exception("Failed to write heartbeat file (non-fatal).")
 
 
 # ── APScheduler event hooks ───────────────────────────────────────────────────
