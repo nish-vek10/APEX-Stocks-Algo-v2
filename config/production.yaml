@@ -45,6 +45,9 @@ universe:
     - SKYT
     - UHAL-B
     - DNA   # IC Markets close-only (retcode 10044) -- found 2026-10-06
+    - SKYD  # TwelveData 404 (symbol invalid) -- 2026-10-06
+    - THRMV # TwelveData 404 (symbol invalid) -- 2026-10-06
+    - WCCB  # TwelveData 404 (data not found) -- 2026-10-06
   # Universe: 20 US tech/growth stocks confirmed available on IG demo CFD account
   # Original S&P 500 diversified universe replaced -- JPM/JNJ/V/UNH/XOM/WMT/PG/MA/HD/CVX/MRK/ABBV/PEP
   # not available on this IG account as 24h cash CFDs.
