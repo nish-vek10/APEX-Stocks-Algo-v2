@@ -164,6 +164,31 @@ CACHE_DIR = Path(__file__).resolve().parents[2] / "data" / "raw" / "prices_daily
 PARQUETS_DIR = CACHE_DIR / "parquets"
 
 
+def _drop_partial_today_bar(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    TwelveData returns the CURRENT session's in-progress daily candle when
+    queried during market hours. Signals/stages computed on it use an
+    incomplete close/volume (look-ahead mismatch vs the backtest, which only
+    ever sees completed bars). Found 2026-10-06: a mid-session cache rebuild
+    + signals run produced 56 bogus signals dated that day.
+
+    Rule: if the last bar's date is today (America/New_York) and it is before
+    16:30 ET (close + settle buffer), or today is a weekend, drop it.
+    """
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    if df.empty:
+        return df
+    now_et = datetime.now(ZoneInfo("America/New_York"))
+    last = pd.Timestamp(df["date"].iloc[-1]).normalize()
+    if last.date() == now_et.date() and (
+        now_et.hour < 16 or (now_et.hour == 16 and now_et.minute < 30)
+    ):
+        return df.iloc[:-1].reset_index(drop=True)
+    return df
+
+
 def fetch_universe_from_cache(
     tickers: List[str],
     lookback_days: int = 300,
@@ -197,7 +222,12 @@ def fetch_universe_from_cache(
             if df.empty:
                 missing.append(ticker)
                 continue
-            df = df.sort_values("date").tail(lookback_days + 60).reset_index(drop=True)
+            df = df.sort_values("date").reset_index(drop=True)
+            df = _drop_partial_today_bar(df)
+            df = df.tail(lookback_days + 60).reset_index(drop=True)
+            if df.empty:
+                missing.append(ticker)
+                continue
             results[ticker] = df
         except Exception as exc:
             logger.warning(f"{ticker}: failed to read cache parquet -- {exc}")
