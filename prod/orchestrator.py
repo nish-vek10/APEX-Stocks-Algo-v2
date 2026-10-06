@@ -118,12 +118,14 @@ class APEXOrchestrator:
         self.portfolio = PortfolioTracker(state_dir)
         self.run_logger = RunLogger(log_dir)
 
-        universe_cfg = self.prod_cfg.get("universe", {})
-        excluded = {str(t).strip().upper() for t in universe_cfg.get("excluded_tickers", [])}
-        tickers = [
-            t for t in universe_cfg.get("tickers", [])
-            if str(t).strip().upper() not in excluded
-        ]
+        # Dynamic universe (Finviz market-cap eligibility, refreshed daily by
+        # tools/refresh_universe.py). eligible = may generate NEW signals;
+        # data_set = eligible + currently-held (kept for exit monitoring even
+        # if the stock fell below the $300M cap). Falls back to the static
+        # production.yaml list if the active file is missing/stale.
+        from core.utils.universe_state import resolve_universe
+        self.eligible_tickers, data_set = resolve_universe(self.prod_cfg, ROOT)
+        tickers = sorted(data_set)
 
         # Broker-specific init
         if self.broker == "ig":
@@ -183,7 +185,18 @@ class APEXOrchestrator:
         else:
             universe_data = self._fetch_data_mt5("D1", lookback)
 
-        raw_signals = self.signal_gen.generate_all(universe_data)
+        # New signals only for market-cap-eligible tickers; held-but-ineligible
+        # names stay in universe_data for Stage-9 exit monitoring below.
+        signal_universe = {
+            t: df for t, df in universe_data.items() if t in self.eligible_tickers
+        }
+        n_inelig = len(universe_data) - len(signal_universe)
+        if n_inelig:
+            logger.info(
+                "Universe: %d eligible scanned, %d held-but-below-cap (exit monitoring only).",
+                len(signal_universe), n_inelig,
+            )
+        raw_signals = self.signal_gen.generate_all(signal_universe)
 
         # Drop any (ticker, signal_date) already fired in a previous run --
         # generate() has no memory of its own and will re-detect the same

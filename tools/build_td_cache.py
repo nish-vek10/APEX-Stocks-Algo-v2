@@ -75,12 +75,17 @@ META_DIR.mkdir(parents=True, exist_ok=True)
 API_KEY  = os.environ.get("TWELVEDATA_API_KEY", "").strip()
 INTERVAL = os.environ.get("TD_INTERVAL", "1day").strip()
 TZ       = os.environ.get("TD_TIMEZONE", "UTC").strip()
-CREDITS_PER_MIN = int(os.environ.get("TD_CREDITS_PER_MIN", "8"))
-BATCH_SIZE      = int(os.environ.get("TD_BATCH_SIZE", "8"))
+# Plan: TwelveData Grow 144 (144 API credits/min, no daily limit). Defaults
+# set to 130/min (10% headroom for retries) -> ~2,900 tickers in ~23 min.
+# .env values (TD_CREDITS_PER_MIN / TD_BATCH_SIZE) still override these.
+CREDITS_PER_MIN = int(os.environ.get("TD_CREDITS_PER_MIN", "130"))
+BATCH_SIZE      = int(os.environ.get("TD_BATCH_SIZE", "26"))
 OUTPUTSIZE      = int(os.environ.get("TD_OUTPUTSIZE", "5000"))
 MIN_ROWS_OK     = int(os.environ.get("TD_MIN_ROWS_OK", "950"))
 
-LOOKBACK_DAYS  = 300   # matches config/production.yaml universe.lookback_days
+LOOKBACK_DAYS  = 1300  # matches config/production.yaml universe.lookback_days
+# 1300 (not 300): parity_replay.py showed 360-bar history drops 51% of backtest
+# signals (Stage-2 memory lookback truncated); full ~1275-bar history = 100% parity.
 FETCH_BUFFER   = 60    # extra bars for indicator warmup (EMA200 etc.)
 STALENESS_DAYS = 1     # cache considered fresh if last_date within N days of today
 
@@ -100,9 +105,13 @@ def utc_now_iso() -> str:
 
 
 def load_universe_tickers() -> List[str]:
+    # Dynamic universe: Finviz-eligible (cap >= $300M) + currently-held
+    # positions; falls back to the static yaml list. Tickers that fell below
+    # the cap and aren't held stop being refreshed (saves credits).
+    from core.utils.universe_state import resolve_universe
     cfg = yaml.safe_load(PRODUCTION_YAML.read_text(encoding="utf-8"))
-    excluded = {str(t).strip().upper() for t in cfg["universe"].get("excluded_tickers", [])}
-    return sorted({str(t).strip().upper() for t in cfg["universe"]["tickers"]} - excluded)
+    _eligible, data_set = resolve_universe(cfg, ROOT)
+    return sorted(data_set)
 
 
 def normalize_ohlcv(df: pd.DataFrame) -> pd.DataFrame:

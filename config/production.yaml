@@ -44,6 +44,7 @@ universe:
     - MOG-A
     - SKYT
     - UHAL-B
+    - DNA   # IC Markets close-only (retcode 10044) -- found 2026-10-06
   # Universe: 20 US tech/growth stocks confirmed available on IG demo CFD account
   # Original S&P 500 diversified universe replaced -- JPM/JNJ/V/UNH/XOM/WMT/PG/MA/HD/CVX/MRK/ABBV/PEP
   # not available on this IG account as 24h cash CFDs.
@@ -2961,7 +2962,7 @@ universe:
     - ZWS
     - ZYME
   timeframe: "D1"             # Timeframe identifier (D1 = daily)
-  lookback_days: 300          # Bars fetched per symbol per run (300 trading days ~ 15 months)
+  lookback_days: 1300         # Bars per symbol (~5y). Must match backtest depth: 360 bars dropped 51% of signals (tools/parity_replay.py)
 
 # ─── Spider Gate ───────────────────────────────────────────────────────────────
 spider_gate:

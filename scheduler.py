@@ -319,6 +319,11 @@ def job_cache_refresh() -> None:
     )
 
 
+def job_universe_refresh() -> None:
+    """Finviz market-cap eligibility refresh (before cache refresh)."""
+    run_script("universe_refresh", [str(ROOT / "tools" / "refresh_universe.py")])
+
+
 def job_signals() -> None:
     run_script("signals", [str(ROOT / "run_prod.py"), "--mode", "signals"])
 
@@ -421,6 +426,20 @@ def main() -> None:
         executors={"default": ThreadPoolExecutor(max_workers=1)},
     )
     scheduler.add_listener(on_job_event, EVENT_JOB_ERROR)
+
+    # Daily Finviz universe refresh (market cap >= $300M eligibility) --
+    # runs before cache refresh so newly-eligible tickers get backfilled.
+    scheduler.add_job(
+        job_universe_refresh,
+        trigger="cron",
+        day_of_week="mon-fri",
+        hour=16,
+        minute=30,
+        id="apex_universe_refresh",
+        name="APEX Universe Refresh (Finviz cap)",
+        misfire_grace_time=1800,
+        coalesce=True,
+    )
 
     # Daily TwelveData cache refresh — MUST run before signals, otherwise
     # signal generation silently reads stale cached bars (see module
