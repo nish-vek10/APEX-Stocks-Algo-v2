@@ -1,0 +1,22 @@
+# config/brokers.example.yaml
+# TEMPLATE (tracked in git). Copy to config/brokers.yaml (git-ignored, local
+# to each PC) and fill in once. tools/broker_suitability.py reads it:
+#     python tools/broker_suitability.py --broker pepperstone
+#
+# Independent of .env -- these values are NEVER used by the live APEX
+# scheduler, so editing them cannot disturb the running IC Markets demo.
+# Leave password: "" to be prompted each run (nothing stored).
+
+brokers:
+  pepperstone:
+    terminal_path: "C:\\Program Files\\Pepperstone MetaTrader 5\\terminal64.exe"
+    login: 0
+    server: "Pepperstone-Demo"
+    password: ""
+
+  # add more candidates the same way, e.g.:
+  # other_broker:
+  #   terminal_path: "C:\\MT5\\Other\\terminal64.exe"
+  #   login: 0
+  #   server: ""
+  #   password: ""
