@@ -234,12 +234,22 @@ def main() -> None:
                     vol = max(s.volume_min, 1.0 if s.volume_step >= 1 else s.volume_min)
                     m = mt5.order_calc_margin(mt5.ORDER_TYPE_BUY, name, vol, tick.ask)
                     df.loc[t, "margin_1lot"] = m
+                    # Pick a filling mode the symbol actually supports
+                    # (bitmask: 1=FOK, 2=IOC; neither -> RETURN). A hard-coded
+                    # mode gave false retcode 10030 on 307/312 symbols.
+                    fm = int(s.filling_mode)
+                    if fm & 1:
+                        fill = mt5.ORDER_FILLING_FOK
+                    elif fm & 2:
+                        fill = mt5.ORDER_FILLING_IOC
+                    else:
+                        fill = mt5.ORDER_FILLING_RETURN
                     req = {
                         "action": mt5.TRADE_ACTION_DEAL, "symbol": name, "volume": vol,
                         "type": mt5.ORDER_TYPE_BUY, "price": tick.ask,
                         "sl": round(tick.ask * 0.95, s.digits), "deviation": 20,
                         "type_time": mt5.ORDER_TIME_GTC,
-                        "type_filling": mt5.ORDER_FILLING_IOC,
+                        "type_filling": fill,
                     }
                     chk = mt5.order_check(req)      # DRY RUN: validates only, sends nothing
                     if chk is not None:
