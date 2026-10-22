@@ -1,0 +1,54 @@
+# apex_desk/desk/scheduler.py
+"""Daily jobs (America/New_York clock): signal scan after the old system's cache+signals, snapshot, and open-time execution."""
+from __future__ import annotations
+
+import logging
+
+from apscheduler.schedulers.blocking import BlockingScheduler
+
+from desk import engine, settings
+from desk.executor import Executor
+
+log = logging.getLogger("desk.scheduler")
+
+
+def job_scan() -> None:
+    engine.run_scan()
+
+
+def job_execute() -> None:
+    Executor().run_session()
+
+
+def job_snapshot() -> None:
+    ex = Executor()
+    ex.broker.connect()
+    try:
+        ex.snapshot()
+        ex.reconcile()
+    finally:
+        ex.broker.disconnect()
+
+
+def job_sync() -> None:
+    from desk import sync
+    try:
+        sync.cycle()
+    except Exception as e:  # noqa: BLE001
+        log.warning("sync error: %s", e)
+
+
+def main() -> None:
+    t = settings.cfg()["timing"]
+    sh, sm = map(int, t["scan_time_et"].split(":"))
+    eh, em = map(int, t["exec_time_et"].split(":"))
+    sched = BlockingScheduler(timezone="America/New_York")
+    sched.add_job(job_scan, "cron", day_of_week="mon-fri", hour=sh, minute=sm, id="scan", misfire_grace_time=3600)
+    sched.add_job(job_execute, "cron", day_of_week="mon-fri", hour=eh, minute=em, id="execute", misfire_grace_time=600)
+    sched.add_job(job_snapshot, "interval", minutes=int(t["snapshot_every_min"]), id="snapshot")
+    from desk import sync
+    if sync.enabled():
+        sched.add_job(job_sync, "interval", seconds=int(settings.cfg().get("sync", {}).get("interval_sec", 60)), id="sync", max_instances=1, coalesce=True)
+    log.info("Desk scheduler up | mode=%s | scan %02d:%02d ET | execute %02d:%02d ET", settings.cfg()["mode"], sh, sm, eh, em)
+    print(f"[desk-scheduler] mode={settings.cfg()['mode']} scan={sh:02d}:{sm:02d} ET execute={eh:02d}:{em:02d} ET (Ctrl+C to stop)")
+    sched.start()

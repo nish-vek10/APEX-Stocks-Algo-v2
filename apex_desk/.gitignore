@@ -1,0 +1,8 @@
+.env
+state/
+logs/
+__pycache__/
+*.db
+*.db-wal
+*.db-shm
+netlify_site/

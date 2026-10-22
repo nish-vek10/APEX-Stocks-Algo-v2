@@ -1,0 +1,86 @@
+<!-- apex_desk/web/index.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>APEX Desk | Morning Signal Review</title>
+<link rel="stylesheet" href="/static/style.css">
+<script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
+</head>
+<body>
+<header class="app-header">
+  <div class="brand"><div class="logo"><svg viewBox="0 0 24 24" width="22" height="22"><path d="M3 19 L12 4 L21 19 L16.5 19 L12 11.5 L7.5 19 Z" fill="currentColor"/></svg></div>
+    <div><b id="brandName">APEX DESK</b><small>Morning signal review</small></div></div>
+  <nav class="seg" id="nav">
+    <button class="tab active" data-tab="signals">Signals</button>
+    <button class="tab" data-tab="positions">Positions</button>
+    <button class="tab" data-tab="history">History</button>
+    <button class="tab" data-tab="audit">Audit</button>
+  </nav>
+  <div class="hdr-right">
+    <div class="mini"><small>LONDON</small><b id="clkLon">--:--:--</b></div>
+    <div class="mini"><small>NEW YORK</small><b id="clkNy">--:--:--</b></div>
+    <span class="pill" id="modePill">--</span>
+    <label class="sel"><span>Reviewer</span><select id="reviewer"></select></label>
+  </div>
+</header>
+
+<section class="hero">
+  <div class="hero-l">
+    <h1 id="heroTitle">Review the day's setups</h1>
+    <p id="heroSub" class="muted">--</p>
+    <div class="progress"><div id="revBar"></div></div>
+    <div class="progress-l" id="revText">--</div>
+  </div>
+  <div class="ring-card" id="cdBox">
+    <svg viewBox="0 0 120 120" class="ring"><circle class="ring-bg" cx="60" cy="60" r="52"/><circle class="ring-fg" id="ringFg" cx="60" cy="60" r="52"/></svg>
+    <div class="ring-t"><small id="cdLabel">CUT-OFF IN</small><b id="cdTime">--:--:--</b><span id="cdSub">--</span></div>
+  </div>
+</section>
+
+<section class="kpis" id="kpis"></section>
+
+<main>
+  <div id="view-signals">
+    <div class="toolbar">
+      <div class="chips" id="chips"></div>
+      <div class="tools">
+        <select id="setupSel"><option value="">All setups</option></select>
+        <input id="search" placeholder="Search ticker" autocomplete="off">
+        <select id="sort"><option value="tier">Tier, then deepest</option><option value="dist">Deepest below EMA200</option><option value="ticker">Ticker A-Z</option><option value="risk">Largest risk</option></select>
+        <select id="cols"><option value="2">2 columns</option><option value="1">1 column</option><option value="3">3 columns</option></select>
+        <button class="btn ghost" id="btnScan" title="Re-scan the cache for new signals">&#8635; Re-scan</button>
+      </div>
+    </div>
+    <div id="banner" class="banner hidden"></div>
+    <div id="tierLegend" class="tier-legend"></div>
+    <div id="cards" class="cards cols2"></div>
+    <div id="empty" class="empty hidden">No signals in this view.</div>
+  </div>
+  <div id="view-positions" class="hidden"><div class="panel"><table id="tblPos"></table></div></div>
+  <div id="view-history" class="hidden"><div class="panel"><table id="tblHist"></table></div></div>
+  <div id="view-audit" class="hidden"><div class="panel"><table id="tblAudit"></table></div></div>
+</main>
+
+<footer class="dock" id="dock">
+  <div class="dock-l" id="actionSummary">--</div>
+  <div class="dock-r">
+    <span class="hint">Hover a card: <kbd>T</kbd> trade &nbsp;<kbd>D</kbd> don't trade &nbsp;<kbd>C</kbd> clear</span>
+    <button class="btn ghost hidden" id="btnUnlock">Unlock batch</button>
+    <button class="btn primary" id="btnConfirm" disabled>TRADE ALL CONFIRMED (0)</button>
+  </div>
+</footer>
+
+<div class="modal hidden" id="modal"><div class="modal-card">
+  <h3>Confirm batch for the US open</h3>
+  <div id="modalBody"></div>
+  <p class="muted">Orders go out at the open using the live ask, tier-scaled 1% risk, ATR stop and the broker lot limits. You can unlock the batch until the cut-off.</p>
+  <div class="modal-actions"><button class="btn ghost" id="mCancel">Cancel</button><button class="btn primary" id="mOk">Queue for the open</button></div>
+</div></div>
+<div id="toast" class="toast hidden"></div>
+<script src="/static/config.js"></script>
+<script>if (window.DESK_CONFIG && window.DESK_CONFIG.SUPABASE_URL) { document.write('<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"><\/script><script src="/static/cloud.js"><\/script>'); }</script>
+<script src="/static/app.js"></script>
+</body>
+</html>

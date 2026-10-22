@@ -1,0 +1,5 @@
+# apex_desk additional requirements (the repo-root requirements.txt already covers pandas/pyarrow/pyyaml/apscheduler/MetaTrader5)
+fastapi>=0.110
+uvicorn>=0.29
+python-dotenv>=1.0
+requests>=2.31
