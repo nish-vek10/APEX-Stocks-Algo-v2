@@ -1,0 +1,8 @@
+# apex_desk/netlify.toml
+# Netlify (Base directory = apex_desk). Builds the static dashboard from web/ and injects the public Supabase URL + ANON key
+# from Netlify environment variables SUPABASE_URL / SUPABASE_ANON_KEY (never the service key).
+[build]
+  command = 'python scripts/build_netlify.py "$SUPABASE_URL" "$SUPABASE_ANON_KEY"'
+  publish = "netlify_site"
+  # Rebuild only when the dashboard changes (exit 0 = skip build); algo pushes elsewhere in the repo do not trigger deploys.
+  ignore = "git diff --quiet $CACHED_COMMIT_REF $COMMIT_REF -- web scripts/build_netlify.py netlify.toml"
