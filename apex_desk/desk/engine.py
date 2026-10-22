@@ -80,14 +80,18 @@ def prepare(df: pd.DataFrame) -> pd.DataFrame:
     return X
 
 
-def size_preview(ref_entry: float, atr: float, equity: float, risk_mult: float = 1.0) -> Dict[str, float]:
+def size_preview(ref_entry: float, atr: float, equity: float, risk_mult: float = 1.0,
+                 risk_pct: Optional[float] = None) -> Dict[str, float]:
+    """risk_pct = absolute fraction of equity risked (manual override); default = base risk x tier multiple."""
     st, rk = settings.cfg()["strategy"], settings.cfg()["risk"]
     stop_dist = max(atr * float(st["atr_multiplier"]), ref_entry * float(st["stop_floor_pct"]))
-    raw = equity * float(rk["risk_pct"]) * risk_mult / stop_dist if stop_dist > 0 else 0
+    rp = float(risk_pct) if risk_pct is not None else float(rk["risk_pct"]) * risk_mult
+    raw = equity * rp / stop_dist if stop_dist > 0 else 0
     cap = equity * float(rk["max_position_value_pct"]) / ref_entry if ref_entry > 0 else 0
     sh = int(max(min(raw, cap, float(rk["max_shares"])), 0))
     return {"stop_price": ref_entry - stop_dist, "stop_dist": stop_dist, "stop_pct": stop_dist / ref_entry,
-            "est_shares": sh, "est_risk": sh * stop_dist, "est_notional": sh * ref_entry, "risk_mult": risk_mult}
+            "est_shares": sh, "est_risk": sh * stop_dist, "est_notional": sh * ref_entry, "risk_mult": risk_mult,
+            "risk_pct": rp}
 
 
 SETUP_ORDER = ["BRK", "W1", "W3", "W2"]                      # primary label when several fire on the same day
@@ -119,6 +123,25 @@ def risk_mult_of(tier: str) -> float:
 
 
 # ── per-ticker worker (top-level so Windows multiprocessing can pickle it) ──
+def _metrics(X: pd.DataFrame, r: pd.Series, tags: List[str]) -> Dict[str, Any]:
+    adv = float((X.close * X.volume).tail(20).mean())
+    return {
+        "setup": tags[0] if tags else None, "setup_tags": "+".join(tags),
+        "stage": int(r["stage"]), "prev_stage": int(r["prev_stage"]), "close": float(r["close"]),
+        "atr": float(r["atr14"]), "atr_pct": float(r["atr14"] / r["close"]),
+        "ema10": float(r["ema_10"]), "ema20": float(r["ema_20"]), "ema50": float(r["ema_50"]),
+        "ema200": float(r["ema_200"]), "dist200": float(r["dist200"]),
+        "days_since_s2": int(r["days_since_s2"]) if r["days_since_s2"] == r["days_since_s2"] else 9999,
+        "donchian_upper": float(r.get("donchian_upper_s1", np.nan)), "bb_lower": float(r.get("bb_lower", np.nan)),
+        "bb_mid": float(r.get("bb_mid", np.nan)), "volume_ratio": float(r.get("volume_ratio", np.nan)),
+        "rsi": float(r.get("rsi", np.nan)), "avg_dollar_vol": adv,
+    }
+
+
+def _tags(r: pd.Series) -> List[str]:
+    return [k for k, on in (("BRK", bool(r["signal"])), ("W1", bool(r["W1"])), ("W3", bool(r["W3"])), ("W2", bool(r["W2"]))) if on]
+
+
 def analyse(ticker: str, asof: Optional[str] = None) -> Optional[Dict[str, Any]]:
     try:
         df = _read(ticker)
@@ -129,23 +152,50 @@ def analyse(ticker: str, asof: Optional[str] = None) -> Optional[Dict[str, Any]]
         X = prepare(df)
         r = X.iloc[-1]
         out = {"ticker": ticker, "last_date": str(r["date"].date()), "stage": int(r["stage"])}
-        tags = [k for k, on in (("BRK", bool(r["signal"])), ("W1", bool(r["W1"])), ("W3", bool(r["W3"])), ("W2", bool(r["W2"]))) if on]
+        tags = _tags(r)
         if tags:
-            adv = float((X.close * X.volume).tail(20).mean())
-            out["sig"] = {
-                "setup": tags[0], "setup_tags": "+".join(tags),
-                "stage": int(r["stage"]), "prev_stage": int(r["prev_stage"]), "close": float(r["close"]),
-                "atr": float(r["atr14"]), "atr_pct": float(r["atr14"] / r["close"]),
-                "ema10": float(r["ema_10"]), "ema20": float(r["ema_20"]), "ema50": float(r["ema_50"]),
-                "ema200": float(r["ema_200"]), "dist200": float(r["dist200"]),
-                "days_since_s2": int(r["days_since_s2"]) if r["days_since_s2"] == r["days_since_s2"] else 9999,
-                "donchian_upper": float(r.get("donchian_upper_s1", np.nan)), "bb_lower": float(r.get("bb_lower", np.nan)),
-                "bb_mid": float(r.get("bb_mid", np.nan)), "volume_ratio": float(r.get("volume_ratio", np.nan)),
-                "rsi": float(r.get("rsi", np.nan)), "avg_dollar_vol": adv,
-            }
+            out["sig"] = _metrics(X, r, tags)
         return out
     except Exception as exc:                                  # noqa: BLE001
         return {"ticker": ticker, "error": str(exc)}
+
+
+def latest_metrics(ticker: str) -> Optional[Dict[str, Any]]:
+    """Current numbers for a watchlist ticker (latest cached bar), whether or not a setup fires today."""
+    df = _read(ticker)
+    if df is None or len(df) < MIN_BARS + 40:
+        return None
+    X = prepare(df)
+    r = X.iloc[-1]
+    m = _metrics(X, r, _tags(r))
+    m["as_of"] = str(r["date"].date())
+    m["stage_name"] = STAGE_NAMES.get(m["stage"], str(m["stage"]))
+    return m
+
+
+def refresh_watchlist() -> int:
+    """Refresh unexecuted tradable / starred signals of the active session with the latest candles and re-size them."""
+    sess = clock.status()["session_date"]
+    rows = db.q("SELECT * FROM signals WHERE entry_date=? AND exec_status='none' AND (tier IN ('A','B','W') OR watch=1)", (sess,))
+    eq = float(db.kv_get("equity", settings.cfg()["risk"]["default_equity"]))
+    n = 0
+    for r in rows:
+        try:
+            m = latest_metrics(r["ticker"])
+        except Exception as exc:                              # noqa: BLE001
+            log.warning("watchlist refresh %s: %s", r["ticker"], exc)
+            continue
+        if not m or m["as_of"] == r.get("as_of"):
+            continue
+        sp = size_preview(m["close"], m["atr"], eq, r["risk_mult"] or 1.0, risk_pct=r["risk_pct"])
+        keys = ["stage", "prev_stage", "close", "atr", "atr_pct", "ema10", "ema20", "ema50", "ema200", "dist200", "days_since_s2",
+                "donchian_upper", "bb_lower", "bb_mid", "volume_ratio", "rsi", "avg_dollar_vol", "stage_name", "as_of"]
+        vals = {k: m[k] for k in keys}
+        vals.update(live_setup=m["setup_tags"] or None, ref_entry=m["close"], stop_price=sp["stop_price"], stop_dist=sp["stop_dist"],
+                    stop_pct=sp["stop_pct"], est_shares=sp["est_shares"], est_risk=sp["est_risk"], est_notional=sp["est_notional"])
+        db.x(f"UPDATE signals SET {','.join(k + '=?' for k in vals)} WHERE id=?", list(vals.values()) + [r["id"]])
+        n += 1
+    return n
 
 
 # ── scan ──────────────────────────────────────────────────────────────────────
@@ -210,9 +260,17 @@ def run_scan(workers: Optional[int] = None, allow_stale: bool = False, asof: Opt
             rm = risk_mult_of(tier)
             sp = size_preview(s["close"], s["atr"], equity, rm if rm > 0 else 1.0)
             row = {"signal_date": sig_date, "entry_date": str(entry.date()), "ticker": r["ticker"], "tier": tier,
-                   "stage_name": STAGE_NAMES.get(s["stage"], str(s["stage"])), "ref_entry": s["close"], **s, **sp}
+                   "stage_name": STAGE_NAMES.get(s["stage"], str(s["stage"])), "ref_entry": s["close"], **s, **sp,
+                   "sig_close": s["close"], "as_of": sig_date, "live_setup": s["setup_tags"], "risk_pct_default": sp["risk_pct"]}
             new_ids.append(db.upsert_signal(row))
             counts[tier] += 1
+
+    refreshed = 0
+    if not stale_cache:
+        db.kv_set("last_scan", {"signal_date": sig_date})        # board date must be known before the watchlist refresh / roll
+        from desk import rules
+        rules.roll_forward()
+        refreshed = refresh_watchlist()
 
     # Stage-9 exit monitoring for desk-held tickers (executed at the open; no approval needed, same as the old system)
     held = {r["ticker"] for r in db.q("SELECT DISTINCT ticker FROM positions WHERE status='open'")}
@@ -226,7 +284,7 @@ def run_scan(workers: Optional[int] = None, allow_stale: bool = False, asof: Opt
     summary = {"ok": not stale_cache, "signal_date": sig_date, "entry_date": str(entry.date()),
                "session": str(session.date()), "stale_cache": stale_cache, "tickers": len(tickers),
                "scanned": len(ok), "errors": len(errors), "tickers_with_older_last_bar": n_old,
-               "tier_counts": counts, "stage9_exits_queued": exits, "seconds": round(time.time() - t0, 1),
+               "tier_counts": counts, "watchlist_refreshed": refreshed, "stage9_exits_queued": exits, "seconds": round(time.time() - t0, 1),
                "ran_at": db.now_iso()}
     db.kv_set("last_scan", summary)
     db.audit("system", "scan", summary)
@@ -248,6 +306,9 @@ def chart_payload(ticker: str, asof: Optional[str] = None, bars: int = 260) -> D
             return []
         return [{"time": str(d.date()), "value": float(v)} for d, v in zip(X.date, X[col]) if v == v]
 
+    X["dc_up"] = X.high.rolling(20).max()                    # TradingView Donchian(20): includes the current bar
+    X["dc_lo"] = X.low.rolling(20).min()
+    X["dc_mid"] = (X.dc_up + X.dc_lo) / 2
     sigs = X[X.signal]
     s2 = X[X.stage == 2]
     return {
@@ -257,7 +318,8 @@ def chart_payload(ticker: str, asof: Optional[str] = None, bars: int = 260) -> D
         "volume": [{"time": str(d.date()), "value": float(v), "color": "#26a69a55" if c >= o else "#ef535055"}
                    for d, v, o, c in zip(X.date, X.volume, X.open, X.close)],
         "lines": {"EMA 10": line("ema_10"), "EMA 20": line("ema_20"), "EMA 50": line("ema_50"), "EMA 200": line("ema_200"),
-                  "Donchian 20 high": line("donchian_upper_s1"), "Donchian 20 low": line("donchian_lower_s1"),
+                  "Donchian upper": line("dc_up"), "Donchian lower": line("dc_lo"), "Donchian basis": line("dc_mid"),
+                  "Breakout level (prior 20d high)": line("donchian_upper_s1"),
                   "BB upper": line("bb_upper"), "BB mid": line("bb_mid"), "BB lower": line("bb_lower")},
         "signals": [str(d.date()) for d in sigs.date],
         "stage2_bars": [str(d.date()) for d in s2.date],

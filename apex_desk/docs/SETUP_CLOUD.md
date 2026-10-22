@@ -1,7 +1,7 @@
 <!-- apex_desk/docs/SETUP_CLOUD.md -->
 # APEX Desk: cloud setup and test runbook
 
-Names to use: Supabase project `apex-desk`, Netlify site `apex-desk-nish` (add digits if taken).
+Names in use: Supabase project `apexstocks-desk`, Netlify site `apexstocks-desk`. Netlify can also deploy from GitHub (Base directory `apex_desk`, env vars SUPABASE_URL / SUPABASE_ANON_KEY).
 Work PC trades and keeps SQLite. Supabase relays. Netlify serves the page.
 
 ## A. Supabase (10 min)
@@ -50,7 +50,7 @@ python -m desk status                    # clock + session + cut-off
 python -m desk scan --allow-stale        # scan latest cache; drop the flag once the cache is fresh
 python -m desk serve                     # open http://127.0.0.1:8000, check signals + charts
 ```
-Then enable the relay: in `conf/desk.yaml` set `sync: enabled: true`.
+Then enable the relay: set `DESK_SYNC_ENABLED=true` in `.env` (no yaml edit needed).
 ```powershell
 python -m desk sync                      # one cycle; expect signals > 0, charts_new > 0
 python -m desk sync --loop               # leave running while testing the website
@@ -71,3 +71,9 @@ Daily run: `python -m desk scheduler` (scan 17:20 ET, execute 09:31 ET, sync eve
 - "OFFLINE" in the mode pill means the Work PC has not synced for 10+ minutes.
 - Charts are uploaded for tiers A/B/W only; C is info-only without chart.
 - Rotate the service key if it ever leaks (Supabase > API > regenerate).
+
+## v2 upgrade (Watchlist + risk override)
+1. Supabase SQL Editor: run each BLOCK of `docs/supabase_migration_v2.sql` in order (idempotent).
+2. Main PC: commit + push. Netlify rebuilds.
+3. Work PC: `git pull origin main`, stop the desk scheduler (Ctrl+C), start it again. The local database migrates itself.
+4. `python -m desk sync` once: the first run pushes the watchlist rows and charts.

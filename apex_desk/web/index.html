@@ -4,17 +4,20 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>APEX Desk | Morning Signal Review</title>
+<title>APEX DESK | Morning Signal Review</title>
 <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/static/style.css">
 <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
 </head>
 <body>
 <header class="app-header">
   <div class="brand"><div class="logo"><svg viewBox="0 0 24 24" width="22" height="22"><path d="M3 19 L12 4 L21 19 L16.5 19 L12 11.5 L7.5 19 Z" fill="currentColor"/></svg></div>
-    <div><b id="brandName">APEX DESK</b><small>Morning signal review</small></div></div>
+    <div><b id="brandName">APEX DESK</b><small>MORNING SIGNAL REVIEW</small></div></div>
   <nav class="seg" id="nav">
-    <button class="tab active" data-tab="signals">Signals</button>
+    <button class="tab active" data-tab="signals">Signals <i class="tb" id="tbSig"></i></button>
+    <button class="tab" data-tab="watch">Watchlist <i class="tb" id="tbWatch"></i></button>
     <button class="tab" data-tab="positions">Positions</button>
     <button class="tab" data-tab="history">History</button>
     <button class="tab" data-tab="audit">Audit</button>
@@ -29,14 +32,27 @@
 
 <section class="hero">
   <div class="hero-l">
-    <h1 id="heroTitle">Review the day's setups</h1>
+    <h1 id="heroTitle">REVIEW THE DAY'S SETUPS</h1>
     <p id="heroSub" class="muted">--</p>
     <div class="progress"><div id="revBar"></div></div>
     <div class="progress-l" id="revText">--</div>
   </div>
-  <div class="ring-card" id="cdBox">
-    <svg viewBox="0 0 120 120" class="ring"><circle class="ring-bg" cx="60" cy="60" r="52"/><circle class="ring-fg" id="ringFg" cx="60" cy="60" r="52"/></svg>
-    <div class="ring-t"><small id="cdLabel">CUT-OFF IN</small><b id="cdTime">--:--:--</b><span id="cdSub">--</span></div>
+  <div class="timers">
+    <div class="tcol">
+      <div class="tcard tmini s-closed" id="tMarket"><div class="candles"></div><small id="mkTitle">MARKET</small><b id="mkTime">--:--:--</b><span id="mkSub">--</span></div>
+      <div class="tcard tmini s-batch" id="tBatch"><div class="candles"></div><small id="btTitle">NEXT SIGNAL BATCH IN</small><b id="btTime">--:--:--</b><span id="btSub">--</span></div>
+    </div>
+    <div class="tcard tbig s-ok" id="cdBox">
+      <div class="candles"></div>
+      <svg viewBox="0 0 120 120" class="ring-orbit"><circle cx="60" cy="60" r="58"/></svg>
+      <svg viewBox="0 0 120 120" class="ring"><circle class="ring-bg" cx="60" cy="60" r="52"/><circle class="ring-fg" id="ringFg" cx="60" cy="60" r="52"/></svg>
+      <div class="ring-t">
+        <small id="cdLabel">DECISION WINDOW</small>
+        <b id="cdTime" class="tm">--:--:--</b>
+        <div class="lockwrap"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2.5"/><path class="sh" d="M8 11V7a4 4 0 0 1 8 0v4"/></svg><em>REVIEW LOCKED</em></div>
+        <span id="cdSub">--</span>
+      </div>
+    </div>
   </div>
 </section>
 
@@ -47,7 +63,7 @@
     <div class="toolbar">
       <div class="chips" id="chips"></div>
       <div class="tools">
-        <select id="setupSel"><option value="">All setups</option></select>
+        <select id="setupSel"><option value="">ALL SETUPS</option></select>
         <input id="search" placeholder="Search ticker" autocomplete="off">
         <select id="sort"><option value="tier">Tier, then deepest</option><option value="dist">Deepest below EMA200</option><option value="ticker">Ticker A-Z</option><option value="risk">Largest risk</option></select>
         <select id="cols"><option value="2">2 columns</option><option value="1">1 column</option><option value="3">3 columns</option></select>
@@ -74,9 +90,9 @@
 </footer>
 
 <div class="modal hidden" id="modal"><div class="modal-card">
-  <h3>Confirm batch for the US open</h3>
+  <h3>CONFIRM BATCH FOR THE US OPEN</h3>
   <div id="modalBody"></div>
-  <p class="muted">Orders go out at the open using the live ask, tier-scaled 1% risk, ATR stop and the broker lot limits. You can unlock the batch until the cut-off.</p>
+  <p class="muted">Orders go out at the open at the live ask price, using tier-scaled risk (or your manual override), the ATR stop and the broker's lot limits. You can unlock the batch until the cut-off.</p>
   <div class="modal-actions"><button class="btn ghost" id="mCancel">Cancel</button><button class="btn primary" id="mOk">Queue for the open</button></div>
 </div></div>
 <div id="toast" class="toast hidden"></div>

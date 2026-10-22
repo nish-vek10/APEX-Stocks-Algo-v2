@@ -123,7 +123,8 @@ class Executor:
         stop_dist = max(atr * float(st["atr_multiplier"]), entry * float(st["stop_floor_pct"]))
         stop = entry - stop_dist
         rm = float(sig.get("risk_mult") or 1.0)
-        risk_usd = equity * float(rk["risk_pct"]) * rm
+        rp = sig.get("risk_pct")                                   # manual override / tier default stored on the signal
+        risk_usd = equity * (float(rp) if rp else float(rk["risk_pct"]) * rm)
         shares = min(risk_usd / stop_dist, equity * float(rk["max_position_value_pct"]) / entry, float(rk["max_shares"]))
         gx = rk.get("max_gross_x")
         if gx:
@@ -170,7 +171,7 @@ class Executor:
             equity = float(snap["equity"] or db.kv_get("equity", self.c["risk"]["default_equity"]))
             out["reconciled"] = self.reconcile()
             out["exits"] = self.process_exits()
-            sigs = db.q(f"SELECT * FROM signals WHERE entry_date=? AND exec_status='queued' AND decision='trade' AND tier IN ({rules._in_tiers()}) "
+            sigs = db.q(f"SELECT * FROM signals WHERE entry_date=? AND exec_status='queued' AND decision='trade' AND {rules.tradable_sql()} "
                         "ORDER BY dist200 ASC", (today,))
             log.info("Executing %d queued signals (equity %.0f)", len(sigs), equity)
             retry: List[Dict[str, Any]] = []

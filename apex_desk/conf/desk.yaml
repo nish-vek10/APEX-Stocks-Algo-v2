@@ -41,6 +41,7 @@ strategy:                              # validated in research/dislocation_study
     W1:  {label: "Near breakout", backtest: ">=25% below, within 3% of the 20d high, EMA10>EMA20: +0.16R, ~2/day"}
     W2:  {label: "EMA20 reclaim", backtest: ">=25% below: closes back above EMA20: +0.23R, ~8.6/day (positive in all 3 periods)"}
     W3:  {label: "EMA50 reclaim", backtest: ">=25% below: closes back above EMA50: +0.20R, ~2.3/day"}
+  manual_risk_mult: 0.5                # default risk multiple for starred info-only (tier C) setups
   show_tier_c: true                    # every other breakout, greyed, info only
   min_price: 2.0                       # penny-stock floor (SSII lesson)
   atr_period: 14
@@ -48,8 +49,12 @@ strategy:                              # validated in research/dislocation_study
   stop_floor_pct: 0.005
   time_stop_days: 365
 
+watchlist:
+  max_age_days: 45                    # unexecuted A/B/W setups roll to each new session (Watchlist tab) for this long
+
 risk:
   risk_pct: 0.01                       # 1% of equity risked per trade
+  max_risk_pct_override: 0.02          # per-trade manual risk override cap (2% of equity)
   max_positions: 75                    # total open positions for this desk
   max_per_ticker: 3                    # up to 3 concurrent trades in the same ticker
   max_position_value_pct: 0.20         # notional <= 20% of equity per position

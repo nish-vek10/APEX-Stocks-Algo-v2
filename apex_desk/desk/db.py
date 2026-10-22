@@ -80,7 +80,9 @@ def conn() -> sqlite3.Connection:
             _CONN.row_factory = sqlite3.Row
             _CONN.execute("PRAGMA journal_mode=WAL")
             _CONN.executescript(SCHEMA)
-            for col, typ in (("setup", "TEXT"), ("setup_tags", "TEXT"), ("risk_mult", "REAL")):   # migrations for older DB files
+            for col, typ in (("setup", "TEXT"), ("setup_tags", "TEXT"), ("risk_mult", "REAL"), ("sig_close", "REAL"), ("as_of", "TEXT"),
+                             ("live_setup", "TEXT"), ("risk_pct", "REAL"), ("risk_pct_default", "REAL"), ("risk_set_at", "TEXT"),
+                             ("watch", "INTEGER DEFAULT 0"), ("last_decision", "TEXT"), ("last_decision_date", "TEXT")):   # migrations for older DB files
                 try:
                     _CONN.execute(f"ALTER TABLE signals ADD COLUMN {col} {typ}")
                 except sqlite3.OperationalError:
@@ -129,8 +131,11 @@ def upsert_signal(s: Dict[str, Any]) -> int:
             x("UPDATE signals SET exec_status='none', decision='none', decided_by=NULL, decided_at=NULL, note=NULL, batch_id=NULL WHERE id=?", (existing["id"],))   # test relabel only
             existing["exec_status"] = "none"
         if existing["exec_status"] in ("none",):
-            sets = ",".join(f"{c}=?" for c in cols if c not in ("signal_date", "ticker"))
-            vals = [s[c] for c in cols if c not in ("signal_date", "ticker")] + [existing["id"]]
+            skip = {"signal_date", "ticker", "sig_close"}
+            if one("SELECT risk_set_at FROM signals WHERE id=?", (existing["id"],))["risk_set_at"]:
+                skip |= {"risk_pct"}                              # keep a manual risk override
+            sets = ",".join(f"{c}=?" for c in cols if c not in skip)
+            vals = [s[c] for c in cols if c not in skip] + [existing["id"]]
             x(f"UPDATE signals SET {sets} WHERE id=?", vals)
         return existing["id"]
     cols = cols + ["created_at"]

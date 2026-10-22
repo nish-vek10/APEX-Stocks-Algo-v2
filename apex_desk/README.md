@@ -65,15 +65,60 @@ Lightweight Charts from the same data the algo used, so what you see is exactly 
 
 ## Layout
 `conf/desk.yaml` all settings | `desk/engine.py` scan + charts | `desk/rules.py` decisions, batch, cut-off | `desk/executor.py` + `brokers.py` MT5 path |
-`desk/api.py` FastAPI | `desk/db.py` SQLite (`state/desk.db`) | `web/` dashboard | `docs/supabase_schema.sql` cloud schema | `tests/smoke_test.py`.
+`desk/api.py` FastAPI | `desk/sync.py` Supabase relay | `web/cloud.js` Supabase adapter | `netlify.toml` | `desk/db.py` SQLite (`state/desk.db`) | `web/` dashboard | `docs/supabase_schema.sql` cloud schema | `tests/smoke_test.py`.
 
-## Supabase + Netlify (next phase)
-Executor and scanner stay on the Windows PC (they need MT5). Swap `desk/db.py` for a Postgres/Supabase adapter (schema in
-`docs/supabase_schema.sql`), host `web/` on Netlify pointing at the API, and enforce the cut-off server-side (Edge Function or the
-FastAPI service). Add Supabase Auth so only you and your manager can log in.
+## Signals, Watchlist and risk override (v2)
+- **Signals tab** = the latest scan batch. It stays on screen until the next scan (about 22:20 London) produces newer signals, so the board is never empty.
+- **Watchlist tab** = every older, unexecuted A/B/W setup (and any starred info setup), grouped by signal date and tagged `Skipped <date>`, `Marked trade <date>, not queued` or `Not reviewed`.
+  Each session rollover moves them to the new session, resets the decision and remembers the last one. Candles, indicators, close, ATR, stop and size refresh after every daily scan
+  (cache is end-of-day data). They have the same Trade / Don't trade buttons: trade any of them at the next open, on any day. Rolling stops after `watchlist.max_age_days` (45); History keeps everything.
+- **Star (Watch)** on an info-only (tier C) card makes it tradable with a default manual risk of 0.5%.
+- **Risk override**: each tradable card has a "Risk per trade" box (default = 1% x tier multiple: A 1.0%, B/W/starred 0.5%). Edit it up to `risk.max_risk_pct_override` (2%); the size preview updates and the executor uses it. Highlighted amber when overridden, with a reset link. Enforced server-side in Supabase too.
+- **Charts** match the TradingView set-up: EMA 10 red, 20 yellow, 50 purple, 200 white; Donchian(20) upper/lower blue (basis orange, optional), width 1.5 (snapped to whole device pixels by the chart library). Default on: EMAs + Donchian upper/lower. Optional toggle: algo breakout level (prior 20-day high). Donchian fill between the bands is not drawn.
+- Cloud upgrade needs `docs/supabase_migration_v2.sql` (run before the Work PC runs the new code).
+
+## Dashboard timers and look (v3)
+- Three glass timer cards share one layout (title / countdown / date and time, London time, DD-MM-YYYY): **Decision window** (large), **Market open/close** and **Next signal batch** (small).
+- The decision window runs only from the batch publication (17:20 ET scan, 22:20 London) to the 13:30 London cut-off. After the cut-off it locks (red padlock, ring closes, "REVIEW LOCKED") and reopens with the next batch. Decisions and batch actions are refused while locked.
+- Colours: green (plenty of time) > amber (under 2 h) > red pulse (under 15 min) > red lock; market green while open, orange while closed; batch cyan. Slow candle strips animate behind each card.
+- Market hours use the regular 09:30-16:00 ET session (early-close days are not modelled).
+- All dates display as DD-MM-YYYY; titles and tab headers are upper case; fonts Space Grotesk, Inter, JetBrains Mono (Google Fonts, needs internet).
+
+## Cloud architecture (live)
+```
+Work PC (MT5 + data cache)                    Supabase (project apexstocks-desk)             Netlify (apexstocks-desk.netlify.app)
+ scan 17:20 ET -> SQLite state/desk.db  --sync-->  desk_signals / desk_charts / desk_status  <--  web/ (static, supabase-js, login)
+ executor 09:31 ET  <--decisions, batch--  RPC: desk_set_decision / confirm_batch / unlock_batch (cut-off enforced server-side)
+```
+- Local SQLite stays the trading source of truth. Supabase is the UI datastore and relay (`desk/sync.py`, every 60 s, service key, Work PC only).
+- Browser uses the public anon key and signed-in users only. Tables are read-only via RLS; writes go through SECURITY DEFINER functions that refuse after `cutoff_at`.
+- Decisions: last writer wins by `decided_at`. Batch queue/unlock: the cloud is authoritative until the open. Execution results flow back to the cloud.
+- Charts upload for tiers A/B/W only. Pill shows OFFLINE if the Work PC has not synced for 10+ minutes.
+- Netlify builds from GitHub (Base dir `apex_desk`, `netlify.toml`) with env vars `SUPABASE_URL` and `SUPABASE_ANON_KEY`; rebuilds only when `web/` changes.
+- Full setup and test runbook: `docs/SETUP_CLOUD.md`.
+
+## Environment (`apex_desk/.env`, never committed)
+`DESK_MT5_LOGIN / PASSWORD / SERVER / TERMINAL_PATH` (new demo account, portable terminal e.g. `C:\MT5_DESK\terminal64.exe`) |
+`DESK_SUPABASE_URL`, `DESK_SUPABASE_SERVICE_KEY` (secret, Work PC only) | `DESK_MODE=dry_run|live` and `DESK_SYNC_ENABLED=true`
+override `conf/desk.yaml`, so `git pull` never conflicts | optional `TELEGRAM_*` (leave blank to keep alerts apart from the old system).
+
+## Work PC runbook (runs beside the old scheduler, which is never touched)
+1. `cd ...\APEX-Stocks-Algo_v2` then `git pull origin main`; `cd apex_desk`; `pip install -r requirements.txt`.
+2. Portable MT5 second terminal logged in to the new demo account; fill `.env`.
+3. Tests: `python -m desk status` | `scan` (must report `stale_cache: false`; no `--allow-stale`) | `sync` | `snapshot` (MT5 block shows the NEW account).
+4. Run `python -m desk scheduler` in its own window (scan 17:20 ET, execute 09:31 ET, snapshot 30 min, sync 60 s). Keep the PC awake.
+5. Daily: review on Netlify before 13:30 London, press Trade all confirmed; paper (dry_run) or real demo orders at 09:31 ET.
+6. Go `DESK_MODE=live` only after one clean dry-run day; restart the scheduler; watch the first fills.
+Isolation: own SQLite DB, own magic number (20261001), own MT5 account, read-only use of the old price cache. Do not run a second scheduler on another PC (same account would double up orders).
+
+## Test-only tools
+- `python -m desk scan --as-session` relabels stale signals as today's session (never use on the Work PC). `--asof YYYY-MM-DD` replays a past date.
+- `python -m desk execute --force` runs the executor outside the open (dry_run only).
+- `python -m desk sync [--loop]` one cloud cycle / continuous relay. `scripts/build_netlify.py <URL> <ANON_KEY>` builds a manual Netlify bundle.
 
 ## Known limitations
 - Sizing preview uses the signal close; actual size/stop are recomputed from the live ask at the open.
 - No circuit breaker (the old one is disabled too). Equity is shown from the executor's last snapshot.
 - The dashboard needs internet only for the chart library (unpkg CDN); vendor the file into `web/` for fully offline use.
-- MT5 order path is reused unchanged but could not be exercised from the build sandbox: run `dry_run` with the DESK terminal logged in, then a 1-signal live test on the demo.
+- MT5 dry-run path verified (real quotes, paper orders, correct sizing/stops). Still to verify: one live demo session with real fills.
+- The cloud sync owns decisions and batch state: use the Netlify site for decisions while sync is on.
