@@ -29,6 +29,9 @@ def cfg() -> Dict[str, Any]:
     env_mode = os.environ.get("DESK_MODE")
     if env_mode:
         c["mode"] = env_mode
+    env_sync = os.environ.get("DESK_SYNC_ENABLED")        # .env overrides keep tracked yaml untouched on the Work PC
+    if env_sync is not None:
+        c.setdefault("sync", {})["enabled"] = env_sync.strip().lower() in ("1", "true", "yes")
     return c
 
 
