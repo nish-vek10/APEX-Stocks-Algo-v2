@@ -10,7 +10,7 @@ if len(sys.argv) != 3 or "service" in sys.argv[2].lower():
 root = Path(__file__).resolve().parents[1]
 out = root / "netlify_site"
 out.mkdir(exist_ok=True)
-for f in ["style.css", "app.js", "cloud.js"]:
+for f in ["style.css", "app.js", "cloud.js", "favicon.svg"]:
     shutil.copy(root / "web" / f, out / f)
 (out / "config.js").write_text("window.DESK_CONFIG = " + json.dumps({"SUPABASE_URL": sys.argv[1], "SUPABASE_ANON_KEY": sys.argv[2]}) + ";\n", encoding="utf-8")
 (out / "index.html").write_text((root / "web" / "index.html").read_text(encoding="utf-8").replace('"/static/', '"./'), encoding="utf-8")
