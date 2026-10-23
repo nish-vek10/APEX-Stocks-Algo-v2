@@ -47,6 +47,8 @@ Position records are keyed by ticket so a ticker can hold up to 3 trades at once
 After 15:00 London a signal with still no quote is marked `failed` (`no_live_quote (no quote until 30 min after the open)`) with an alert.
 Fills during retries use the live ask at that moment for size, stop and risk. The desk never falls back to the end-of-day close.
 
+**MT5 order comment (tier tag)** - entry: `DESK_<tier>-<signal id>`, e.g. `DESK_A-4567`; exit: `DESK_EXIT_<tier>-<signal id>`. The number is the desk's signal id (traceable to the History tab and `state/desk.db`, never reused), max 31 chars (MT5 limit). Visible in the MT5 history export Comment column. Trades placed before this change carry `DESK<id>`.
+
 **MT5 lock** - MT5's Python API is process-global, so `MT5_LOCK` (in `executor.py`) serialises the executor and the snapshot job.
 While the executor retries (up to 30 min) the half-hourly snapshot is skipped ("Snapshot skipped" in the log); equity on the dashboard may lag. `null_result` triggers an automatic MT5 reconnect.
 
@@ -97,6 +99,11 @@ Lightweight Charts from the same data the algo used, so what you see is exactly 
 - Colours: green (plenty of time) > amber (under 2 h) > red pulse (under 15 min) > red lock; market green while open, orange while closed; batch cyan. Slow candle strips animate behind each card.
 - Market hours use the regular 09:30-16:00 ET session (early-close days are not modelled).
 - All dates display as DD-MM-YYYY; titles and tab headers are upper case; fonts Space Grotesk, Inter, JetBrains Mono (Google Fonts, needs internet).
+
+## Positions, Closed and History tabs (v4)
+- **Positions** = open trades. **Closed** = finished trades (exit date, days held, exit price, reason, P&L $, R). A position moves from Positions to Closed when the Stage-9 / time-stop exit fills or MT5 closes it (stop hit); the executor's `reconcile` detects it at the next run (09:31 ET). Positions are never deleted.
+- Every row in Positions, Closed and History starts with a tier tag (A / B / W / C) in the tier colour (A green, B amber, W blue, C grey) and a matching coloured strip at the row start.
+- Positions store the tier at entry (`positions.tier`, Supabase `desk_positions.tier`; run `docs/supabase_migration_v3.sql` once in the Supabase SQL editor before pulling on the Work PC).
 
 ## Cloud architecture (live)
 ```

@@ -279,15 +279,24 @@ function renderList(rebuild) {
 }
 
 // ---------- tables ----------
-const T = (el, cols, rows) => { el.innerHTML = `<thead><tr>${cols.map(c => `<th>${c[0]}</th>`).join("")}</tr></thead><tbody>${rows.map(r => `<tr>${cols.map(c => `<td>${c[1](r) ?? ""}</td>`).join("")}</tr>`).join("") || `<tr><td colspan="${cols.length}" class="muted">Nothing to show yet.</td></tr>`}</tbody>`; };
+const T = (el, cols, rows, rowCls) => { el.innerHTML = `<thead><tr>${cols.map(c => `<th>${c[0]}</th>`).join("")}</tr></thead><tbody>${rows.map(r => `<tr class="${rowCls ? rowCls(r) : ""}">${cols.map(c => `<td>${c[1](r) ?? ""}</td>`).join("")}</tr>`).join("") || `<tr><td colspan="${cols.length}" class="muted">Nothing to show yet.</td></tr>`}</tbody>`; };
+const tierOf = r => ["A", "B", "W", "C"].includes(r.tier) ? r.tier : "";
+const tierCls = r => tierOf(r) ? "r" + tierOf(r) : "";                                   // coloured strip at the row start
+const tkCell = r => `${tierOf(r) ? `<span class="badge b-${tierOf(r)} tg">${tierOf(r)}</span>` : ""}<b>${r.ticker}</b>`;   // tier tag + ticker
+const pnlCell = (v, d = 0) => v == null ? "" : `<span style="color:var(--${v >= 0 ? "ok" : "bad"})">${v >= 0 ? "+" : "-"}$${Math.abs(v).toLocaleString("en-GB", {maximumFractionDigits: d})}</span>`;
+const holdDays = r => r.exit_date && r.entry_date ? Math.round((new Date(r.exit_date) - new Date(r.entry_date)) / 864e5) : "";
 async function loadTab(tab) {
-  if (tab === "positions") { const p = await api("/api/positions"); T($("#tblPos"), [["Ticker", r => `<b>${r.ticker}</b>`], ["Symbol", r => r.broker_symbol], ["Ticket", r => r.ticket], ["Entry date", r => fmtDate(r.entry_date)], ["Entry", r => fmt(r.entry_price, 4)], ["Stop", r => fmt(r.stop_price, 4)], ["Shares", r => fmt(r.shares, 0)], ["Lots", r => r.mt5_volume], ["Risk $", r => usd(r.shares * r.stop_distance)]], p); }
-  if (tab === "history") { const h = await api("/api/history"); T($("#tblHist"), [["Signal date", r => fmtDate(r.signal_date)], ["Target session", r => fmtDate(r.entry_date)], ["Ticker", r => `<b>${r.ticker}</b>`], ["Tier", r => r.tier + (r.watch ? " *" : "")], ["Setup", r => r.setup], ["vs EMA200", r => pct(r.dist200)], ["Stage-2 age", r => r.days_since_s2], ["Decision", r => r.decision], ["Previous decision", r => r.last_decision && r.last_decision !== "none" ? `${r.last_decision} (${dmy(r.last_decision_date)})` : ""], ["Risk %", r => r.risk_pct ? (r.risk_pct * 100).toFixed(2) : ""], ["By", r => r.decided_by || ""], ["Execution", r => r.exec_status]], h); }
+  if (tab === "closed") {
+    const c = await api("/api/positions?status=closed");
+    T($("#tblClosed"), [["Ticker", tkCell], ["Symbol", r => r.broker_symbol], ["Ticket", r => r.ticket], ["Entry date", r => fmtDate(r.entry_date)], ["Exit date", r => fmtDate(r.exit_date)], ["Days held", holdDays], ["Entry", r => fmt(r.entry_price, 4)], ["Exit", r => fmt(r.exit_price, 4)], ["Shares", r => fmt(r.shares, 0)], ["Exit reason", r => (r.exit_reason || "").replace(/_/g, " ")], ["P&L $", r => pnlCell(r.pnl_total)], ["R", r => r.pnl_r == null ? "" : `<span style="color:var(--${r.pnl_r >= 0 ? "ok" : "bad"})">${r.pnl_r >= 0 ? "+" : ""}${r.pnl_r.toFixed(2)}R</span>`]], c, tierCls);
+  }
+  if (tab === "positions") { const p = await api("/api/positions"); T($("#tblPos"), [["Ticker", tkCell], ["Symbol", r => r.broker_symbol], ["Ticket", r => r.ticket], ["Entry date", r => fmtDate(r.entry_date)], ["Entry", r => fmt(r.entry_price, 4)], ["Stop", r => fmt(r.stop_price, 4)], ["Shares", r => fmt(r.shares, 0)], ["Lots", r => r.mt5_volume], ["Risk $", r => usd(r.shares * r.stop_distance)]], p, tierCls); }
+  if (tab === "history") { const h = await api("/api/history"); T($("#tblHist"), [["Signal date", r => fmtDate(r.signal_date)], ["Target session", r => fmtDate(r.entry_date)], ["Ticker", tkCell], ["Tier", r => r.tier + (r.watch ? " *" : "")], ["Setup", r => r.setup], ["vs EMA200", r => pct(r.dist200)], ["Stage-2 age", r => r.days_since_s2], ["Decision", r => r.decision], ["Previous decision", r => r.last_decision && r.last_decision !== "none" ? `${r.last_decision} (${dmy(r.last_decision_date)})` : ""], ["Risk %", r => r.risk_pct ? (r.risk_pct * 100).toFixed(2) : ""], ["By", r => r.decided_by || ""], ["Execution", r => r.exec_status]], h, tierCls); }
   if (tab === "audit") { const a = await api("/api/audit"); T($("#tblAudit"), [["Time (UTC)", r => fmtTs(r.ts)], ["Actor", r => r.actor], ["Action", r => r.action], ["Detail", r => (r.detail || "").slice(0, 160)]], a); }
 }
 document.querySelectorAll(".tab").forEach(b => b.onclick = () => {
   document.querySelectorAll(".tab").forEach(x => x.classList.toggle("active", x === b)); state.tab = b.dataset.tab;
-  ["signals", "positions", "history", "audit"].forEach(t => $("#view-" + t).classList.toggle("hidden", t === "signals" ? !sv() : t !== state.tab));
+  ["signals", "positions", "closed", "history", "audit"].forEach(t => $("#view-" + t).classList.toggle("hidden", t === "signals" ? !sv() : t !== state.tab));
   if (sv() && state.status) { state.limit = 40; state.filter = "tradable"; renderHero(); renderChips(); renderList(true); } else loadTab(state.tab);
 });
 

@@ -28,7 +28,7 @@ create table if not exists desk_charts   (sid text primary key references desk_s
 create table if not exists desk_status   (id int primary key default 1 check (id = 1), payload jsonb not null, updated_at timestamptz not null default now());
 create table if not exists desk_positions(id bigint primary key, ticker text, broker_symbol text, ticket bigint, entry_date text, entry_price double precision, stop_price double precision,
                                           shares double precision, mt5_volume double precision, stop_distance double precision, status text, exit_date text, exit_price double precision,
-                                          exit_reason text, pnl_total double precision, pnl_r double precision);
+                                          exit_reason text, pnl_total double precision, pnl_r double precision, tier text);
 create table if not exists desk_audit    (id bigint primary key, ts timestamptz, actor text, action text, detail text);
 create table if not exists desk_batches  (id bigint generated always as identity primary key, entry_date date not null, created_by text, created_at timestamptz not null default now(), n_signals int, est_risk double precision, est_notional double precision, status text default 'queued');
 create table if not exists desk_commands (id bigint generated always as identity primary key, cmd text not null, requested_by text, created_at timestamptz not null default now(), done_at timestamptz);

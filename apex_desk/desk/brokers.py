@@ -37,7 +37,7 @@ class BaseBroker:
     def tick(self, symbol: str) -> Optional[SimpleNamespace]: raise NotImplementedError
     def resolve_volume(self, symbol: str, shares: float, stop_dist: float, risk_usd: float) -> Dict[str, Any]: raise NotImplementedError
     def send_entry(self, symbol: str, volume: float, stop: float, comment: str) -> Dict[str, Any]: raise NotImplementedError
-    def send_close(self, symbol: str, ticket: int, volume: float) -> Dict[str, Any]: raise NotImplementedError
+    def send_close(self, symbol: str, ticket: int, volume: float, comment: str = "DESK_EXIT") -> Dict[str, Any]: raise NotImplementedError
     def live_tickets(self) -> Optional[set]: return None
     def closing_info(self, ticket: int, fallback: float) -> Dict[str, Any]: return {"price": fallback, "detail": "no history"}
 
@@ -86,11 +86,11 @@ class MT5Broker(BaseBroker):
         req = build_entry_request(symbol, volume, stop, self.magic, self.symcfg, comment=comment)
         return send_order(req, self.send_environment)
 
-    def send_close(self, symbol, ticket, volume):
+    def send_close(self, symbol, ticket, volume, comment="DESK_EXIT"):
         import MetaTrader5 as mt5
         from prod.execution.order_builder import build_close_request
         from prod.execution.order_executor import send_order
-        req = build_close_request(symbol, ticket, volume, mt5.ORDER_TYPE_BUY, self.magic, self.symcfg, comment="DESK_EXIT")
+        req = build_close_request(symbol, ticket, volume, mt5.ORDER_TYPE_BUY, self.magic, self.symcfg, comment=comment)
         return send_order(req, self.send_environment)
 
     def live_tickets(self) -> Optional[set]:
@@ -150,7 +150,7 @@ class SimBroker(BaseBroker):
         t = self.tick(symbol)
         return {"success": True, "retcode": 10009, "order": self._n, "volume": volume, "price": t.ask, "comment": "sim_fill"}
 
-    def send_close(self, symbol, ticket, volume):
+    def send_close(self, symbol, ticket, volume, comment="DESK_EXIT"):
         t = self.tick(symbol)
         return {"success": True, "retcode": 10009, "order": ticket, "volume": volume, "price": t.bid, "comment": "sim_close"}
 

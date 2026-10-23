@@ -93,7 +93,8 @@ class Executor:
             if not reason:
                 continue
             try:
-                res = self.broker.send_close(p["broker_symbol"], int(p["ticket"]), float(p["mt5_volume"] or p["shares"]))
+                res = self.broker.send_close(p["broker_symbol"], int(p["ticket"]), float(p["mt5_volume"] or p["shares"]),
+                                             f"{self.c['execution']['comment_prefix']}_EXIT_{p.get('tier') or 'X'}-{p.get('signal_id')}")
                 if res.get("success"):
                     self._close_record(p, float(res.get("price") or bid), reason)
                     _alert("alert_position_closed", p["ticker"], p["broker_symbol"], float(res.get("price") or bid),
@@ -143,7 +144,8 @@ class Executor:
         vol = self.broker.resolve_volume(sym, shares, stop_dist, shares * stop_dist)
         if not vol.get("ok"):
             return f"volume_{vol.get('reason')}"
-        res = self.broker.send_entry(sym, vol["volume"], stop, f"{self.c['execution']['comment_prefix']}{sig['id']}")
+        tag = f"{self.c['execution']['comment_prefix']}_{sig.get('tier') or 'X'}-{sig['id']}"      # MT5 comment, e.g. DESK_A-4567
+        res = self.broker.send_entry(sym, vol["volume"], stop, tag)
         db.x("INSERT INTO executions(signal_id,ticker,ts,ok,reason,retcode,order_id,lots,shares,fill_price,stop_price,risk_usd,detail) "
              "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
              (sig["id"], t, db.now_iso(), int(bool(res.get("success"))), res.get("comment"), res.get("retcode"),
@@ -153,10 +155,10 @@ class Executor:
             return str(res.get("comment") or res.get("retcode") or "order_failed")
         fill = float(res.get("price") or entry)
         sd = fill - stop
-        db.x("INSERT INTO positions(ticker,broker_symbol,ticket,signal_id,entry_date,entry_price,stop_price,shares,mt5_volume,stop_distance) "
-             "VALUES(?,?,?,?,?,?,?,?,?,?)",
+        db.x("INSERT INTO positions(ticker,broker_symbol,ticket,signal_id,entry_date,entry_price,stop_price,shares,mt5_volume,stop_distance,tier) "
+             "VALUES(?,?,?,?,?,?,?,?,?,?,?)",
              (t, sym, res.get("order"), sig["id"], str(clock.now_utc().astimezone(clock.ET).date()), fill, stop,
-              vol["actual_shares"], vol["volume"], sd))
+              vol["actual_shares"], vol["volume"], sd, sig.get("tier")))
         _alert("alert_order_sent", t, sym, vol["actual_shares"], fill, stop, vol["actual_shares"] * sd, sd, self.env_label,
                deal_id=str(res.get("order")))
         log.info("FILLED %s %s lots=%s shares=%s fill=%.4f sl=%.4f risk=$%.0f", t, sym, vol["volume"], vol["actual_shares"],
@@ -225,7 +227,10 @@ class Executor:
             while retry:
                 if phase == 1 and time.monotonic() >= deadline:
                     phase = 2
-                    log.info("Quote retry phase 2: %d signals still waiting, retrying every %ds until %s London", len(retry), int(gap2),
+                    if clock.now_utc() >= ext_deadline:
+                        log.info("Quote retry window closed at %s London: no quote for %d signals", ext_deadline.astimezone(clock.london()).strftime("%H:%M"), len(retry))
+                    else:
+                        log.info("Quote retry phase 2: %d signals still waiting, retrying every %ds until %s London", len(retry), int(gap2),
                              ext_deadline.astimezone(clock.london()).strftime("%H:%M"))
                 if phase == 2 and clock.now_utc() >= ext_deadline:
                     break

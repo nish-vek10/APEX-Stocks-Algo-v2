@@ -87,6 +87,11 @@ def conn() -> sqlite3.Connection:
                     _CONN.execute(f"ALTER TABLE signals ADD COLUMN {col} {typ}")
                 except sqlite3.OperationalError:
                     pass
+            try:
+                _CONN.execute("ALTER TABLE positions ADD COLUMN tier TEXT")      # tier tag (A/B/W/C) copied from the signal at entry
+            except sqlite3.OperationalError:
+                pass
+            _CONN.execute("UPDATE positions SET tier=(SELECT tier FROM signals WHERE signals.id=positions.signal_id) WHERE tier IS NULL")
             _CONN.commit()
         return _CONN
 

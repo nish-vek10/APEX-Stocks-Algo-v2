@@ -180,7 +180,8 @@ def scan() -> Any:
 
 @app.get("/api/positions")
 def positions(status: str = "open") -> Any:
-    return db.q("SELECT * FROM positions WHERE status=? ORDER BY entry_date DESC, ticker", (status,))
+    order = "exit_date DESC, ticker" if status == "closed" else "entry_date DESC, ticker"
+    return db.q(f"SELECT * FROM positions WHERE status=? ORDER BY {order}", (status,))
 
 
 @app.get("/api/executions")

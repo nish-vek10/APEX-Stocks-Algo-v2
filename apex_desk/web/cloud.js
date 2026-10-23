@@ -75,7 +75,7 @@ async function api(path, opt) {
   if (p === "/api/batch/confirm") return ok(await sb.rpc("desk_confirm_batch", {p_entry_date: cache.sessDate, p_by: body.by}));
   if (p === "/api/batch/unlock") return {unlocked: ok(await sb.rpc("desk_unlock_batch", {p_entry_date: cache.sessDate, p_by: body.by}))};
   if (p === "/api/scan") { ok(await sb.rpc("desk_request_scan", {p_by: "web"})); return {started: true}; }
-  if (p === "/api/positions") return ok(await sb.from("desk_positions").select("*").eq("status", "open").order("entry_date", {ascending: false}));
+  if (p === "/api/positions") { const st = u.searchParams.get("status") === "closed" ? "closed" : "open"; return ok(await sb.from("desk_positions").select("*").eq("status", st).order(st === "closed" ? "exit_date" : "entry_date", {ascending: false}).limit(500)); }
   if (p === "/api/history") return ok(await sb.from("desk_signals").select("signal_date,entry_date,ticker,tier,setup,decision,decided_by,exec_status,dist200,days_since_s2,watch,last_decision,last_decision_date,risk_pct").or("tier.in.(A,B,W),watch.eq.true").order("signal_date", {ascending: false}).limit(500));
   if (p === "/api/audit") return ok(await sb.from("desk_audit").select("*").order("id", {ascending: false}).limit(100));
   throw new Error("Unsupported in cloud mode: " + p);

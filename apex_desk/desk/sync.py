@@ -198,7 +198,7 @@ def _push_status(c: Cloud) -> None:
 
 
 def _push_positions_audit(c: Cloud) -> None:
-    pos = db.q("SELECT id,ticker,broker_symbol,ticket,entry_date,entry_price,stop_price,shares,mt5_volume,stop_distance,status,exit_date,exit_price,exit_reason,pnl_total,pnl_r FROM positions")
+    pos = db.q("SELECT id,ticker,broker_symbol,ticket,entry_date,entry_price,stop_price,shares,mt5_volume,stop_distance,status,exit_date,exit_price,exit_reason,pnl_total,pnl_r,tier FROM positions")
     if pos:
         c.upsert("desk_positions", pos, "id")
     aud = db.q("SELECT id,ts,actor,action,detail FROM audit ORDER BY id DESC LIMIT 200")

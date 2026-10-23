@@ -185,6 +185,8 @@ main{padding:10px 28px}
 .panel{background:var(--glass),var(--panel);backdrop-filter:var(--blur);-webkit-backdrop-filter:var(--blur);border:1px solid var(--line);border-radius:var(--r);overflow:auto;box-shadow:var(--sh),inset 0 1px 0 rgba(255,255,255,.07)}
 table{width:100%;border-collapse:collapse}th,td{padding:11px 15px;text-align:left;border-bottom:1px solid var(--line);font-size:13px;white-space:nowrap}
 th{color:var(--mut);font:700 10px var(--f-head);letter-spacing:.14em;text-transform:uppercase;position:sticky;top:0;background:rgba(10,16,30,.8);backdrop-filter:blur(10px)}tr:hover td{background:#ffffff07}
+tr.rA td:first-child{box-shadow:inset 4px 0 0 var(--tA)}tr.rB td:first-child{box-shadow:inset 4px 0 0 var(--tB)}tr.rW td:first-child{box-shadow:inset 4px 0 0 var(--tW)}tr.rC td:first-child{box-shadow:inset 4px 0 0 var(--tC)}  /* tier strip at row start */
+td .tg{margin-right:9px}
 
 /* dock */
 .dock{position:fixed;left:50%;transform:translateX(-50%);bottom:18px;width:min(1180px,calc(100% - 36px));display:flex;align-items:center;gap:20px;z-index:45;
