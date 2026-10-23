@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import math
+import threading
 import time
 from typing import Any, Dict, List, Optional
 
@@ -24,6 +25,10 @@ def _alert(fn: str, *a, **k) -> None:
         getattr(al, fn)(*a, **k)
     except Exception as exc:                               # noqa: BLE001
         log.debug("alert %s failed: %s", fn, exc)
+
+
+MT5_LOCK = threading.RLock()          # MT5's python API is process-global: only one job may connect / disconnect at a time
+RETRYABLE = ("no_live_quote", "null_result")
 
 
 class Executor:
@@ -160,6 +165,19 @@ class Executor:
 
     # ── session ─────────────────────────────────────────────────────────────
     def run_session(self, force: bool = False) -> Dict[str, Any]:
+        with MT5_LOCK:
+            return self._run_session(force)
+
+    def _reconnect(self) -> None:
+        """order_send returned None (IPC lost): reconnect to the terminal before the order is retried."""
+        try:
+            self.broker.disconnect()
+        except Exception:                                  # noqa: BLE001
+            pass
+        time.sleep(1)
+        self.broker.connect()
+
+    def _run_session(self, force: bool = False) -> Dict[str, Any]:
         today = str(clock.now_utc().astimezone(clock.ET).date())
         import core.utils.trading_calendar as tc
         if not force and not tc.is_trading_day(today):
@@ -187,13 +205,16 @@ class Executor:
                 if r is None:
                     self._mark(s["id"], "executed", "filled")
                     out["executed"] += 1
-                elif r == "no_live_quote":
+                elif r in RETRYABLE:
+                    db.x("UPDATE signals SET exec_status='queued' WHERE id=?", (s["id"],))
                     retry.append(s)
+                    if r == "null_result":
+                        self._reconnect()
                 else:
                     self._mark(s["id"], "failed", r)
                     out["failed"].append((s["ticker"], r))
                     _alert("alert_order_rejected", s["ticker"], self.broker.symbol_for(s["ticker"]), r, self.env_label)
-            # no_live_quote retry window (same behaviour as the old system)
+            # retry window for no_live_quote / lost MT5 connection (same behaviour as the old system)
             win = float(self.c["timing"]["no_quote_retry_window_sec"])
             gap = float(self.c["timing"]["no_quote_retry_interval_sec"])
             deadline = time.monotonic() + win
@@ -206,8 +227,10 @@ class Executor:
                     if r is None:
                         self._mark(s["id"], "executed", "filled on retry")
                         out["executed"] += 1
-                    elif r == "no_live_quote":
+                    elif r in RETRYABLE:
                         nxt.append(s)
+                        if r == "null_result":
+                            self._reconnect()
                     else:
                         self._mark(s["id"], "failed", r)
                         out["failed"].append((s["ticker"], r))

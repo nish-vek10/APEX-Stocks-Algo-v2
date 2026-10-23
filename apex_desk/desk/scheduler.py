@@ -9,7 +9,7 @@ from datetime import datetime, timedelta, timezone
 from apscheduler.schedulers.blocking import BlockingScheduler
 
 from desk import engine, settings
-from desk.executor import Executor
+from desk.executor import MT5_LOCK, Executor
 
 log = logging.getLogger("desk.scheduler")
 
@@ -43,13 +43,19 @@ def job_execute() -> None:
 
 
 def job_snapshot() -> None:
-    ex = Executor()
-    ex.broker.connect()
+    if not MT5_LOCK.acquire(blocking=False):                # executor is running: never disturb its MT5 connection
+        log.info("Snapshot skipped: an MT5 job is running")
+        return
     try:
-        ex.snapshot()
-        ex.reconcile()
+        ex = Executor()
+        ex.broker.connect()
+        try:
+            ex.snapshot()
+            ex.reconcile()
+        finally:
+            ex.broker.disconnect()
     finally:
-        ex.broker.disconnect()
+        MT5_LOCK.release()
 
 
 def job_sync() -> None:

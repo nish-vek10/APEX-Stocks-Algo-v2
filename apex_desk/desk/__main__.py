@@ -12,7 +12,7 @@ from desk import settings
 
 def main() -> None:
     ap = argparse.ArgumentParser(prog="desk")
-    ap.add_argument("cmd", choices=["serve", "scan", "execute", "snapshot", "scheduler", "status", "sync"])
+    ap.add_argument("cmd", choices=["serve", "scan", "execute", "snapshot", "scheduler", "status", "sync", "requeue"])
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--port", type=int, default=8000)
     ap.add_argument("--workers", type=int, default=None, help="scan worker processes")
@@ -48,6 +48,14 @@ def main() -> None:
         if not sync.enabled():
             sys.exit("Sync disabled: set sync.enabled: true in conf/desk.yaml and DESK_SUPABASE_URL / DESK_SUPABASE_SERVICE_KEY in .env")
         sync.loop() if a.loop else print(json.dumps(sync.cycle(prune=True), indent=2, default=str))
+    elif a.cmd == "requeue":
+        from desk import db
+        rows = db.q("SELECT id, ticker, entry_date, exec_detail FROM signals WHERE exec_status='failed' AND decision='trade' "
+                    "AND (exec_detail LIKE '%null_result%' OR exec_detail LIKE '%IPC%' OR exec_detail LIKE '%no_live_quote%') ORDER BY entry_date DESC")
+        for r in rows:
+            db.x("UPDATE signals SET exec_status='queued', exec_detail=NULL WHERE id=?", (r["id"],))
+        db.audit("system", "requeue", {"n": len(rows), "tickers": [r["ticker"] for r in rows]})
+        print(f"Re-queued {len(rows)} failed signals (connection errors only): {[r['ticker'] for r in rows]}")
     elif a.cmd == "status":
         from desk import clock
         print(json.dumps(clock.status(), indent=2))
