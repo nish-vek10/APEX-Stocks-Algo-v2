@@ -116,10 +116,8 @@ function renderAction() {
   const msgs = [];
   if (!s.last_scan) msgs.push(["bad", "No scan has run yet. Click Re-scan, or wait for the scheduled scan at 17:20 ET (22:20 London)."]);
   else if (s.last_scan.stale_cache) {
-    const p = new Intl.DateTimeFormat("en-GB", {timeZone: "America/New_York", hour: "numeric", minute: "numeric", hourCycle: "h23"}).formatToParts(new Date(Date.now() + offsetMs));
-    const etMin = +p.find(x => x.type === "hour").value * 60 + +p.find(x => x.type === "minute").value;
-    if (etMin < 17 * 60 + 25) msgs.push(["warn", `Waiting for tonight's scan (17:20 ET, 22:20 London). The last scan used candles up to ${fmtDate(s.last_scan.signal_date)}.`]);
-    else msgs.push(["bad", `The data looks stale: the latest candles are from ${fmtDate(s.last_scan.signal_date)}. Check that the old scheduler's cache refresh has finished before trusting these setups.`]);
+    const ran = s.last_scan.ran_at ? `${fmtDate(s.last_scan.ran_at)} ${String(s.last_scan.ran_at).slice(11, 16)} UTC` : "n/a";
+    msgs.push(["warn", `Waiting for fresh data: the latest scan (${ran}) only found candles up to ${fmtDate(s.last_scan.signal_date)}. The desk retries every 5 minutes and publishes the new batch as soon as the old scheduler's cache refresh completes.`]);
   }
   (b.warnings || []).forEach(w => msgs.push(["warn", w]));
   const bn = $("#banner"); bn.classList.toggle("hidden", !msgs.length);

@@ -64,6 +64,8 @@ risk:
 
 timing:                                # all keyed to New York time, so UK/US DST mismatch weeks are handled
   cutoff_minutes_before_open: 60       # 60 min before 09:30 ET = 13:30 London (12:30 in the 1-2 week DST mismatch)
+  scan_retry_min: 5                    # retry the scan every N minutes while the cache is stale
+  scan_retry_max_hours: 15
   scan_time_et: "17:20"                # after the old scheduler's cache refresh (16:45) and signals (17:05)
   exec_time_et: "09:31"                # entries + exits at the open, same as the old scheduler
   snapshot_every_min: 30

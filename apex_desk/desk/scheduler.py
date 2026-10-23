@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import logging
+import time
+from datetime import datetime, timedelta, timezone
 
 from apscheduler.schedulers.blocking import BlockingScheduler
 
@@ -13,7 +15,27 @@ log = logging.getLogger("desk.scheduler")
 
 
 def job_scan() -> None:
-    engine.run_scan()
+    """Scan, and keep retrying while the old scheduler's cache refresh is still catching up (stale cache = no signals stored)."""
+    t = settings.cfg()["timing"]
+    gap = int(t.get("scan_retry_min", 5)) * 60
+    deadline = time.monotonic() + float(t.get("scan_retry_max_hours", 15)) * 3600
+    n = 0
+    while True:
+        n += 1
+        try:
+            r = engine.run_scan()
+        except Exception as e:  # noqa: BLE001
+            log.exception("scan crashed: %s", e)
+            r = {"ok": False, "error": str(e)}
+        if r.get("ok"):
+            log.info("Scan OK on attempt %d: %s", n, r.get("tier_counts"))
+            break
+        log.warning("Scan attempt %d not usable (stale cache or error): %s. Retrying in %d min.", n, r.get("signal_date") or r.get("error"), gap // 60)
+        if time.monotonic() > deadline:
+            log.error("Scan gave up after %d attempts: cache never became fresh", n)
+            break
+        time.sleep(gap)
+    job_sync()
 
 
 def job_execute() -> None:
@@ -45,6 +67,7 @@ def main() -> None:
     sched = BlockingScheduler(timezone="America/New_York")
     sched.add_job(job_scan, "cron", day_of_week="mon-fri", hour=sh, minute=sm, id="scan", misfire_grace_time=3600)
     sched.add_job(job_execute, "cron", day_of_week="mon-fri", hour=eh, minute=em, id="execute", misfire_grace_time=600)
+    sched.add_job(job_scan, "date", run_date=datetime.now(timezone.utc) + timedelta(seconds=20), id="scan_startup")   # catch up after restarts / late cache
     sched.add_job(job_snapshot, "interval", minutes=int(t["snapshot_every_min"]), id="snapshot")
     from desk import sync
     if sync.enabled():
