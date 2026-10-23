@@ -327,5 +327,5 @@ async function refresh() {
     tick(); renderHero(); renderKpis(); renderChips(); renderList(false); renderAction();
   } catch (e) { toast("Cannot load the desk data: " + e.message, true); }
 }
-(window.DESK_READY || Promise.resolve()).then(() => { refresh(); setInterval(() => { if (sv()) refresh(); }, 15000); });
+(window.DESK_READY || Promise.resolve()).then(() => { refresh(); setInterval(async () => { await refresh(); if (!sv()) loadTab(state.tab); }, 15000); });
 })();
