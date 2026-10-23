@@ -71,6 +71,8 @@ timing:                                # all keyed to New York time, so UK/US DS
   snapshot_every_min: 30
   no_quote_retry_window_sec: 300
   no_quote_retry_interval_sec: 30
+  no_quote_extended_interval_sec: 120      # phase 2 retry gap
+  no_quote_extended_minutes_after_open: 30   # keep retrying until open + 30 min (15:00 London normally)
 
 execution:
   magic_number: 20261001               # DIFFERENT from the old scheduler's magic -> never touches its positions

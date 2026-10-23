@@ -214,12 +214,22 @@ class Executor:
                     self._mark(s["id"], "failed", r)
                     out["failed"].append((s["ticker"], r))
                     _alert("alert_order_rejected", s["ticker"], self.broker.symbol_for(s["ticker"]), r, self.env_label)
-            # retry window for no_live_quote / lost MT5 connection (same behaviour as the old system)
-            win = float(self.c["timing"]["no_quote_retry_window_sec"])
-            gap = float(self.c["timing"]["no_quote_retry_interval_sec"])
+            # retry phase 1: every `gap` s for `win` s; phase 2: every `gap2` s until `ext_min` minutes after the open
+            # (thin 24h symbols such as *.NYSE-24 usually get quotes once the opening rush is over)
+            t = self.c["timing"]
+            win, gap = float(t["no_quote_retry_window_sec"]), float(t["no_quote_retry_interval_sec"])
+            gap2, ext_min = float(t.get("no_quote_extended_interval_sec", 120)), float(t.get("no_quote_extended_minutes_after_open", 30))
+            ext_deadline = clock.open_dt(today).astimezone(clock.ET) + pd.Timedelta(minutes=ext_min).to_pytimedelta()
             deadline = time.monotonic() + win
-            while retry and time.monotonic() < deadline:
-                time.sleep(gap)
+            phase = 1
+            while retry:
+                if phase == 1 and time.monotonic() >= deadline:
+                    phase = 2
+                    log.info("Quote retry phase 2: %d signals still waiting, retrying every %ds until %s London", len(retry), int(gap2),
+                             ext_deadline.astimezone(clock.london()).strftime("%H:%M"))
+                if phase == 2 and clock.now_utc() >= ext_deadline:
+                    break
+                time.sleep(gap if phase == 1 else gap2)
                 nxt = []
                 for s in retry:
                     why = self._pre_checks(s)
@@ -237,10 +247,10 @@ class Executor:
                         _alert("alert_order_rejected", s["ticker"], self.broker.symbol_for(s["ticker"]), r, self.env_label)
                 retry = nxt
             for s in retry:
-                self._mark(s["id"], "failed", f"no_live_quote (persisted {int(win)}s)")
+                self._mark(s["id"], "failed", f"no_live_quote (no quote until {int(ext_min)} min after the open)")
                 out["failed"].append((s["ticker"], "no_live_quote"))
                 _alert("alert_order_rejected", s["ticker"], self.broker.symbol_for(s["ticker"]),
-                       f"no_live_quote (persisted after {int(win)}s)", self.env_label)
+                       f"no_live_quote (still no quote {int(ext_min)} min after the open)", self.env_label)
             rules.expire_stale()
             db.x("UPDATE batches SET status='executed' WHERE entry_date=? AND status='queued'", (today,))
             self.snapshot()
