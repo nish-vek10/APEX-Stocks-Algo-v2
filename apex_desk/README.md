@@ -38,6 +38,20 @@ flooring, **volume clamped to the broker's volume_max** (a 5000-lot target on a 
 stop attached, retcode handling, and the 5-minute `no_live_quote` retry window. Stops come from the live ask at the open.
 Position records are keyed by ticket so a ticker can hold up to 3 trades at once.
 
+**Quote retries (no quote, `null_result`)** - `.NYSE-24` symbols often have no quote right at the open, so the executor retries instead of failing:
+| Phase | Interval | Until | Config (`conf/desk.yaml`) |
+|---|---|---|---|
+| 1 | 30 s | 5 min after the run starts | `no_quote_retry_interval_sec`, `no_quote_retry_window_sec` |
+| 2 | 120 s | open + 30 min (15:00 London) | `no_quote_extended_interval_sec`, `no_quote_extended_minutes_after_open` |
+
+After 15:00 London a signal with still no quote is marked `failed` (`no_live_quote (no quote until 30 min after the open)`) with an alert.
+Fills during retries use the live ask at that moment for size, stop and risk. The desk never falls back to the end-of-day close.
+
+**MT5 lock** - MT5's Python API is process-global, so `MT5_LOCK` (in `executor.py`) serialises the executor and the snapshot job.
+While the executor retries (up to 30 min) the half-hourly snapshot is skipped ("Snapshot skipped" in the log); equity on the dashboard may lag. `null_result` triggers an automatic MT5 reconnect.
+
+**Recovery** - `python -m desk requeue` puts failed signals (`null_result`, IPC, `no_live_quote`) back to `queued`; then `python -m desk execute --force` while the market is open.
+
 ## Setup (PowerShell, from `...\APEX-Stocks_algo-v2\apex_desk`)
 ```
 pip install -r requirements.txt
@@ -107,6 +121,9 @@ override `conf/desk.yaml`, so `git pull` never conflicts | optional `TELEGRAM_*`
 2. Portable MT5 second terminal logged in to the new demo account; fill `.env`.
 3. Tests: `python -m desk status` | `scan` (must report `stale_cache: false`; no `--allow-stale`) | `sync` | `snapshot` (MT5 block shows the NEW account).
 4. Run `python -m desk scheduler` in its own window (scan 17:20 ET, execute 09:31 ET, snapshot 30 min, sync 60 s). Keep the PC awake.
+   Scan resilience: a `scan_startup` job runs 20 s after the scheduler starts; if the cache is stale the scan retries every `scan_retry_min` (5) minutes for up to `scan_retry_max_hours` (15), then syncs.
+   The old scheduler must refresh the cache first (16:45 ET, `tools/build_td_cache.py`); if the old scheduler is down the desk keeps retrying but the data stays stale. Manual fix: run `python tools\build_td_cache.py` in the old project, then `python -m desk scan`.
+   After any `git pull`, restart the scheduler (Ctrl+C, then `python -m desk scheduler`).
 5. Daily: review on Netlify before 13:30 London, press Trade all confirmed; paper (dry_run) or real demo orders at 09:31 ET.
 6. Go `DESK_MODE=live` only after one clean dry-run day; restart the scheduler; watch the first fills.
 Isolation: own SQLite DB, own magic number (20261001), own MT5 account, read-only use of the old price cache. Do not run a second scheduler on another PC (same account would double up orders).
@@ -114,11 +131,18 @@ Isolation: own SQLite DB, own magic number (20261001), own MT5 account, read-onl
 ## Test-only tools
 - `python -m desk scan --as-session` relabels stale signals as today's session (never use on the Work PC). `--asof YYYY-MM-DD` replays a past date.
 - `python -m desk execute --force` runs the executor outside the open (dry_run only).
+- `python -m desk requeue` returns retryable failed signals to `queued` (see Execution).
+- `DESK_FAKE_NOW=2026-10-23T09:00:00+00:00` freezes the server clock to test timers/lock states (PowerShell: `$env:DESK_FAKE_NOW=...`).
 - `python -m desk sync [--loop]` one cloud cycle / continuous relay. `scripts/build_netlify.py <URL> <ANON_KEY>` builds a manual Netlify bundle.
 
 ## Known limitations
 - Sizing preview uses the signal close; actual size/stop are recomputed from the live ask at the open.
 - No circuit breaker (the old one is disabled too). Equity is shown from the executor's last snapshot.
 - The dashboard needs internet only for the chart library (unpkg CDN); vendor the file into `web/` for fully offline use.
-- MT5 dry-run path verified (real quotes, paper orders, correct sizing/stops). Still to verify: one live demo session with real fills.
+- MT5 dry-run and live demo fills verified (23-10-2026: 9 of 11 filled; the shared-connection clash that failed the rest is fixed by `MT5_LOCK`). The two-phase quote retry is verified with a simulated broker only; first real run is the next open.
 - The cloud sync owns decisions and batch state: use the Netlify site for decisions while sync is on.
+- The "review not open yet" lock is enforced by the UI and local API only; Supabase enforces the cut-off.
+- Early-close days (half sessions) are not modelled in the timers or cut-off.
+- Dashboard auto-refreshes every 15 s on all tabs (Signals, Watchlist, Positions, History, Audit).
+- Unfilled orders show as `queued` during retries (no separate "waiting for quote" state).
+- Gross cap 5x = total position value / equity; new trades are skipped once it would be exceeded.
