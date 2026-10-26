@@ -164,6 +164,39 @@ def set_watch(sig_id: int, by: str) -> Dict[str, Any]:
     return db.one("SELECT * FROM signals WHERE id=?", (sig_id,))
 
 
+def force_queue(ticker: str, by: str = "manual", risk_pct: float | None = None) -> Dict[str, Any]:
+    """MANUAL OVERRIDE (CLI only): queue one setup for TODAY's open after the cut-off / review window.
+    Used when a decision was missed. Latest signal for the ticker; starred automatically if info-only. Audit-logged."""
+    today = str(clock.now_utc().astimezone(clock.ET).date())
+    import core.utils.trading_calendar as tc
+    if not tc.is_trading_day(today):
+        raise PermissionError("not a trading day")
+    if clock.now_utc() >= clock.close_dt(today):
+        raise PermissionError("market already closed today")
+    sig = db.one("SELECT * FROM signals WHERE ticker=? ORDER BY signal_date DESC, id DESC LIMIT 1", (ticker.upper(),))
+    if not sig:
+        raise KeyError(f"no signal found for {ticker}")
+    if sig["exec_status"] in ("queued", "executing", "executed"):
+        raise PermissionError(f"{ticker} is already {sig['exec_status']}")
+    if not is_tradable(sig):
+        db.x("UPDATE signals SET exec_status='none' WHERE id=?", (sig["id"],))
+        sig = set_watch(sig["id"], by)                                    # info-only: star it (manual risk default)
+    cap = float(settings.cfg()["risk"].get("max_risk_pct_override", 0.02))
+    if risk_pct is not None:
+        if not (0.0005 <= risk_pct <= cap):
+            raise ValueError(f"risk must be between 0.05% and {cap * 100:.2f}% of equity")
+        sp = engine.size_preview(sig["ref_entry"] or sig["close"], sig["atr"], equity(), sig["risk_mult"] or 1.0, risk_pct=risk_pct)
+        db.x("UPDATE signals SET risk_pct=?, risk_set_at=?, est_shares=?, est_risk=?, est_notional=? WHERE id=?",
+             (risk_pct, db.now_iso(), sp["est_shares"], sp["est_risk"], sp["est_notional"], sig["id"]))
+    now = db.now_iso()
+    db.x("UPDATE signals SET decision='trade', decided_by=?, decided_at=?, note=?, exec_status='queued', exec_detail=NULL, entry_date=? WHERE id=?",
+         (by, now, "manual force-queue after cut-off", today, sig["id"]))
+    db.x("INSERT INTO decisions(signal_id,decided_by,decision,note,decided_at) VALUES(?,?,?,?,?)",
+         (sig["id"], by, "trade", "manual force-queue after cut-off", now))
+    db.audit(by, "force_queue", {"ticker": sig["ticker"], "signal_id": sig["id"], "signal_date": sig["signal_date"], "tier": sig["tier"]})
+    return db.one("SELECT * FROM signals WHERE id=?", (sig["id"],))
+
+
 def roll_forward() -> int:
     """Session rollover. Unexecuted tradable/starred setups (and the latest scan batch) move to the new session with their last
     decision remembered (Watchlist); everything else, plus anything queued but never executed, expires (kept in the DB)."""

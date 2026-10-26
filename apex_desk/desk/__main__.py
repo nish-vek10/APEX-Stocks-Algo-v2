@@ -12,7 +12,9 @@ from desk import settings
 
 def main() -> None:
     ap = argparse.ArgumentParser(prog="desk")
-    ap.add_argument("cmd", choices=["serve", "scan", "execute", "snapshot", "scheduler", "status", "sync", "requeue"])
+    ap.add_argument("cmd", choices=["serve", "scan", "execute", "snapshot", "scheduler", "status", "sync", "requeue", "force-queue"])
+    ap.add_argument("tickers", nargs="*", help="force-queue: tickers to queue for today's open, e.g. CCB")
+    ap.add_argument("--risk", type=float, default=None, help="force-queue: risk %% of equity override, e.g. 0.5")
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--port", type=int, default=8000)
     ap.add_argument("--workers", type=int, default=None, help="scan worker processes")
@@ -56,6 +58,17 @@ def main() -> None:
             db.x("UPDATE signals SET exec_status='queued', exec_detail=NULL WHERE id=?", (r["id"],))
         db.audit("system", "requeue", {"n": len(rows), "tickers": [r["ticker"] for r in rows]})
         print(f"Re-queued {len(rows)} failed signals (connection errors only): {[r['ticker'] for r in rows]}")
+    elif a.cmd == "force-queue":
+        from desk import rules
+        if not a.tickers:
+            sys.exit("usage: python -m desk force-queue CCB [TICKER ...] [--risk 0.5]")
+        for t in a.tickers:
+            try:
+                s = rules.force_queue(t, by="manual-cli", risk_pct=(a.risk / 100 if a.risk else None))
+                print(f"QUEUED {s['ticker']}: tier {s['tier']} | signal {s['signal_date']} | risk {(s['risk_pct'] or 0) * 100:.2f}% "
+                      f"| entry_date {s['entry_date']} | est {s['est_shares']} sh, ${s['est_risk']:.0f} risk")
+            except (PermissionError, KeyError, ValueError) as e:
+                print(f"REFUSED {t}: {e}")
     elif a.cmd == "status":
         from desk import clock
         print(json.dumps(clock.status(), indent=2))

@@ -138,6 +138,7 @@ Isolation: own SQLite DB, own magic number (20261001), own MT5 account, read-onl
 ## Test-only tools
 - `python -m desk scan --as-session` relabels stale signals as today's session (never use on the Work PC). `--asof YYYY-MM-DD` replays a past date.
 - `python -m desk execute --force` runs the executor outside the open (dry_run only).
+- `python -m desk force-queue CCB [TICKER ...] [--risk 0.5]` MANUAL OVERRIDE: queues the ticker's latest signal for TODAY's open after the cut-off (info-only setups are starred automatically; `--risk` is % of equity, max 2). Refused on non-trading days or after the close. Audit-logged as `force_queue`. The scheduler's 09:31 ET run executes it; if the open has already passed, run `python -m desk execute` once.
 - `python -m desk requeue` returns retryable failed signals to `queued` (see Execution).
 - `DESK_FAKE_NOW=2026-10-23T09:00:00+00:00` freezes the server clock to test timers/lock states (PowerShell: `$env:DESK_FAKE_NOW=...`).
 - `python -m desk sync [--loop]` one cloud cycle / continuous relay. `scripts/build_netlify.py <URL> <ANON_KEY>` builds a manual Netlify bundle.
