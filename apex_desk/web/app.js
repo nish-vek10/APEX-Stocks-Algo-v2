@@ -237,7 +237,15 @@ async function loadChart(el) {
     host.innerHTML = "";
     const ch = LightweightCharts.createChart(host, {width: host.clientWidth, height: host.clientHeight, layout: {background: {type: "solid", color: "rgba(0,0,0,0)"}, textColor: "#93a3c3", fontFamily: "JetBrains Mono, Inter, monospace", fontSize: 11},
       grid: {vertLines: {color: "rgba(255,255,255,.04)"}, horzLines: {color: "rgba(255,255,255,.04)"}}, rightPriceScale: {borderColor: "rgba(255,255,255,.1)"},
-      timeScale: {borderColor: "rgba(255,255,255,.1)", tickMarkFormatter: (t, type) => { const y = t.year, m = String(t.month).padStart(2, "0"), d = String(t.day).padStart(2, "0"); return type === 0 ? `${y}` : type === 1 ? `${m}-${y}` : `${d}-${m}`; }},
+      timeScale: {borderColor: "rgba(255,255,255,.1)", tickMarkFormatter: (t, type) => {   // t may be a "YYYY-MM-DD" string, a unix timestamp or a {year,month,day} object depending on the library path
+        let y, m, d;
+        if (typeof t === "string") [y, m, d] = t.slice(0, 10).split("-");
+        else if (typeof t === "number") { const x = new Date(t * 1000); y = x.getUTCFullYear(); m = x.getUTCMonth() + 1; d = x.getUTCDate(); }
+        else if (t) { y = t.year; m = t.month; d = t.day; }
+        if (y == null) return "";
+        m = String(m).padStart(2, "0"); d = String(d).padStart(2, "0");
+        return type === 0 ? `${y}` : type === 1 ? `${m}-${y}` : `${d}-${m}`;
+      }},
       localization: {dateFormat: "dd-MM-yyyy"}, crosshair: {mode: 0}});
     const cs = ch.addCandlestickSeries({upColor: "#26a69a", downColor: "#ef5350", wickUpColor: "#26a69a", wickDownColor: "#ef5350", borderVisible: false});
     cs.setData(d.candles);
