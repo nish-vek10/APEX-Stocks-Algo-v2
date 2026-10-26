@@ -35,7 +35,25 @@ def job_scan() -> None:
             log.error("Scan gave up after %d attempts: cache never became fresh", n)
             break
         time.sleep(gap)
+    job_broker_modes()
     job_sync()
+
+
+def job_broker_modes() -> None:
+    """Flag setups the broker will not open (close-only etc.) so they show on the dashboard before review."""
+    if not MT5_LOCK.acquire(blocking=False):
+        return
+    try:
+        ex = Executor()
+        ex.broker.connect()
+        try:
+            ex.check_broker_modes()
+        finally:
+            ex.broker.disconnect()
+    except Exception as e:  # noqa: BLE001
+        log.warning("broker mode check failed: %s", e)
+    finally:
+        MT5_LOCK.release()
 
 
 def job_execute() -> None:
@@ -52,6 +70,7 @@ def job_snapshot() -> None:
         try:
             ex.snapshot()
             ex.reconcile()
+            ex.check_broker_modes()
         finally:
             ex.broker.disconnect()
     finally:

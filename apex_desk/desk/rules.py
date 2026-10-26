@@ -7,6 +7,13 @@ from typing import Any, Dict, List
 from desk import clock, db, engine, settings
 
 
+BLOCKED_MODES = ("close_only", "disabled", "short_only", "no_symbol")   # broker will not accept a new long on these symbols
+
+
+def broker_blocked(sig: Dict[str, Any]) -> bool:
+    return (sig.get("broker_mode") or "") in BLOCKED_MODES
+
+
 def tradable_tiers() -> List[str]:
     return [k for k, v in settings.cfg()["strategy"]["tiers"].items() if v.get("tradable")]
 
@@ -68,6 +75,8 @@ def set_decision(sig_id: int, decision: str, by: str, note: str = "") -> Dict[st
         raise PermissionError(why)
     if decision not in ("trade", "skip", "none"):
         raise ValueError("decision must be trade | skip | none")
+    if decision == "trade" and broker_blocked(sig):
+        raise PermissionError(f"Broker does not allow new trades on this symbol ({sig['broker_mode'].replace('_', ' ')})")
     db.x("UPDATE signals SET decision=?, decided_by=?, decided_at=?, note=? WHERE id=?",
          (decision, by, db.now_iso(), note, sig_id))
     db.x("INSERT INTO decisions(signal_id,decided_by,decision,note,decided_at) VALUES(?,?,?,?,?)",
@@ -178,6 +187,8 @@ def force_queue(ticker: str, by: str = "manual", risk_pct: float | None = None) 
         raise KeyError(f"no signal found for {ticker}")
     if sig["exec_status"] in ("queued", "executing", "executed"):
         raise PermissionError(f"{ticker} is already {sig['exec_status']}")
+    if broker_blocked(sig):
+        raise PermissionError(f"broker does not allow new trades on {ticker} ({sig['broker_mode'].replace('_', ' ')})")
     if not is_tradable(sig):
         db.x("UPDATE signals SET exec_status='none' WHERE id=?", (sig["id"],))
         sig = set_watch(sig["id"], by)                                    # info-only: star it (manual risk default)

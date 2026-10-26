@@ -7,6 +7,7 @@ const pct = (n, d = 1) => n == null ? "-" : (n * 100).toFixed(d) + "%";
 const usd = n => n == null ? "-" : "$" + fmt(n, 0);
 const TRADABLE = ["A", "B", "W"];
 const TIER_RANK = {A: 0, B: 1, W: 2, C: 3};
+const BROKER_BLOCKED = ["close_only", "disabled", "short_only", "no_symbol"];      // symbols the broker will not open a long on
 const state = {status: null, signals: [], filter: "tradable", setup: "", search: "", sort: "tier", cards: new Map(), charts: new Map(), tab: "signals", limit: 40, hover: null};
 // Styling copied from the TradingView chart: EMA 10 red, 20 yellow, 50 purple, 200 white; Donchian(20) upper/lower blue, basis orange.
 const LINES = {"EMA 10": "#ff5252", "EMA 20": "#ffeb3b", "EMA 50": "#9c27b0", "EMA 200": "#ffffff", "Donchian upper": "#2962ff", "Donchian lower": "#2962ff",
@@ -169,7 +170,7 @@ function cardHtml(s) {
     <span class="badge b-s">${setupBadge}${s.setup_tags && s.setup_tags.includes("+") ? " +" : ""}</span>
     <span class="badge b-s">Stage ${s.stage} ${s.stage_name}</span>
     <span class="badge b-age" title="Signal formed at the close of ${s.signal_date}">Signal ${dmy(s.signal_date)} &middot; ${ageTxt(s)}</span>
-    ${prevTag(s)}${s.watch && !TRADABLE.includes(s.tier) ? '<span class="badge b-star">&#9733; Starred</span>' : ""}
+    ${prevTag(s)}${s.watch && !TRADABLE.includes(s.tier) ? '<span class="badge b-star">&#9733; Starred</span>' : ""}<span class="badge b-bad hidden" data-f="bm"></span>
     <span class="right"><span class="rm" title="Tier risk multiple">Risk ×${s.risk_mult || 1}</span><span class="state" data-f="state"></span>
     <a href="https://www.tradingview.com/chart/?symbol=${s.ticker}" target="_blank" rel="noopener">OPEN IN TRADINGVIEW &#8599;</a></span></div>
   <div class="hint-bt">${info ? "Info only. Star it to make it tradable and keep it on the Watchlist." : (s.setup !== "BRK" && SI.backtest ? "Backtest: " + SI.backtest : "Tier " + s.tier + " backtest: " + (T.backtest || ""))}</div>
@@ -200,7 +201,10 @@ function decorate(s, el) {
   if (isTradable(s)) {
     const go = el.querySelector('[data-f="go"]'), no = el.querySelector('[data-f="no"]'), n = el.querySelector('[data-f="note"]'), lock = !!s.locked_reason;
     go.classList.toggle("on", s.decision === "trade"); no.classList.toggle("on", s.decision === "skip");
-    go.disabled = no.disabled = n.disabled = lock; go.title = no.title = s.locked_reason || "";
+    const bmode = BROKER_BLOCKED.includes(s.broker_mode) ? s.broker_mode : "", bm = el.querySelector('[data-f="bm"]');
+    bm.classList.toggle("hidden", !bmode); bm.textContent = bmode ? "BROKER: " + bmode.replace(/_/g, " ").toUpperCase() : ""; bm.title = "The broker will not open new trades on this symbol. Execution would be rejected.";
+    go.disabled = lock || (!!bmode && s.decision !== "trade"); no.disabled = n.disabled = lock;
+    go.title = bmode && s.decision !== "trade" ? "Broker does not allow new trades on this symbol (" + bmode.replace(/_/g, " ") + ")" : (s.locked_reason || ""); no.title = s.locked_reason || "";
     if (document.activeElement !== n) n.value = s.note || "";
     const ri = el.querySelector('[data-f="risk"]'), rr = el.querySelector('[data-f="rreset"]'), eff = effRisk(s), df = defRisk(s), ovr = Math.abs(eff - df) > 1e-9;
     if (document.activeElement !== ri) ri.value = (eff * 100).toFixed(2);

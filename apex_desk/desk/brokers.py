@@ -40,6 +40,7 @@ class BaseBroker:
     def send_close(self, symbol: str, ticket: int, volume: float, comment: str = "DESK_EXIT") -> Dict[str, Any]: raise NotImplementedError
     def live_tickets(self) -> Optional[set]: return None
     def closing_info(self, ticket: int, fallback: float) -> Dict[str, Any]: return {"price": fallback, "detail": "no history"}
+    def trade_mode(self, symbol: str) -> str: return "full"        # full | long_only | short_only | close_only | disabled | unknown
 
 
 class MT5Broker(BaseBroker):
@@ -92,6 +93,20 @@ class MT5Broker(BaseBroker):
         from prod.execution.order_executor import send_order
         req = build_close_request(symbol, ticket, volume, mt5.ORDER_TYPE_BUY, self.magic, self.symcfg, comment=comment)
         return send_order(req, self.send_environment)
+
+    def trade_mode(self, symbol: str) -> str:
+        """Broker permission for opening a long: close_only / disabled / short_only block new entries (retcode 10044 otherwise)."""
+        import MetaTrader5 as mt5
+        try:
+            mt5.symbol_select(symbol, True)
+            info = mt5.symbol_info(symbol)
+        except Exception:                                  # noqa: BLE001
+            return "unknown"
+        if info is None:
+            return "unknown"
+        return {mt5.SYMBOL_TRADE_MODE_DISABLED: "disabled", mt5.SYMBOL_TRADE_MODE_LONGONLY: "long_only",
+                mt5.SYMBOL_TRADE_MODE_SHORTONLY: "short_only", mt5.SYMBOL_TRADE_MODE_CLOSEONLY: "close_only",
+                mt5.SYMBOL_TRADE_MODE_FULL: "full"}.get(info.trade_mode, "unknown")
 
     def live_tickets(self) -> Optional[set]:
         import MetaTrader5 as mt5

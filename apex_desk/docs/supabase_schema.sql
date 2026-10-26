@@ -122,6 +122,7 @@ alter table desk_signals add column if not exists risk_set_at timestamptz;
 alter table desk_signals add column if not exists watch boolean not null default false;
 alter table desk_signals add column if not exists last_decision text;
 alter table desk_signals add column if not exists last_decision_date date;
+alter table desk_signals add column if not exists broker_mode text;
 
 -- BLOCK 2: decision + batch rules (starred setups are tradable)
 create or replace function desk_set_decision(p_sid text, p_decision text, p_by text, p_note text default '')

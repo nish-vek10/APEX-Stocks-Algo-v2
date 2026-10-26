@@ -144,6 +144,7 @@ main{padding:10px 28px}
 .tk{font:700 24px var(--f-head);letter-spacing:.04em;margin-right:4px}
 .badge{font-size:10px;font-weight:800;letter-spacing:.09em;padding:4px 9px;border-radius:7px;text-transform:uppercase}
 .b-A{background:#22d39a1f;color:var(--tA)}.b-B{background:#ffb5471f;color:var(--tB)}.b-W{background:#7aa2ff1f;color:var(--tW)}.b-C{background:#7b88a31f;color:var(--tC)}.b-s{background:#ffffff10;color:var(--mut)}
+.badge.b-bad{background:#ff5d7326;color:var(--bad);border:1px solid #ff5d7355}
 .badge.b-age{background:#7aa2ff1a;color:#9db8ff}.badge.b-warn{background:#ffb5471f;color:var(--warn)}.badge.b-star{background:#ffd54a24;color:#ffd54a}
 .chead .right{margin-left:auto;display:flex;gap:8px;align-items:center}
 .chead a{color:var(--mut);font-size:11px;text-decoration:none;border:1px solid var(--line);background:var(--panel2);padding:4px 10px;border-radius:8px;font-weight:600}.chead a:hover{color:var(--txt);border-color:var(--acc)}

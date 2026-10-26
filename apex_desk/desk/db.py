@@ -82,7 +82,8 @@ def conn() -> sqlite3.Connection:
             _CONN.executescript(SCHEMA)
             for col, typ in (("setup", "TEXT"), ("setup_tags", "TEXT"), ("risk_mult", "REAL"), ("sig_close", "REAL"), ("as_of", "TEXT"),
                              ("live_setup", "TEXT"), ("risk_pct", "REAL"), ("risk_pct_default", "REAL"), ("risk_set_at", "TEXT"),
-                             ("watch", "INTEGER DEFAULT 0"), ("last_decision", "TEXT"), ("last_decision_date", "TEXT")):   # migrations for older DB files
+                             ("watch", "INTEGER DEFAULT 0"), ("last_decision", "TEXT"), ("last_decision_date", "TEXT"),
+                             ("broker_mode", "TEXT")):   # migrations for older DB files
                 try:
                     _CONN.execute(f"ALTER TABLE signals ADD COLUMN {col} {typ}")
                 except sqlite3.OperationalError:

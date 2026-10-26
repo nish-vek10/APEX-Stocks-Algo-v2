@@ -49,6 +49,8 @@ Fills during retries use the live ask at that moment for size, stop and risk. Th
 
 **MT5 order comment (tier tag)** - entry: `DESK_<tier>-<signal id>`, e.g. `DESK_A-4567`; exit: `DESK_EXIT_<tier>-<signal id>`. The number is the desk's signal id (traceable to the History tab and `state/desk.db`, never reused), max 31 chars (MT5 limit). Visible in the MT5 history export Comment column. Trades placed before this change carry `DESK<id>`.
 
+**Broker trade mode (close-only)** - the broker can set a symbol to Close only / Disabled / Short only; new entries then fail with retcode `10044 (Only position closing is allowed)` (seen on `CCB.NAS-24`, 26-10-2026). The desk reads each tradable setup's MT5 symbol trade mode after every scan, in every 30-min snapshot and again right before each order (`Executor.check_broker_modes`, stored in `signals.broker_mode`, synced to Supabase). Such cards show a red **BROKER: CLOSE ONLY** tag, the Trade button is disabled, `set_decision` / `force-queue` refuse, and the executor fails them fast as `broker_close_only` with no retry. Info-only and skipped setups are unaffected.
+
 **MT5 lock** - MT5's Python API is process-global, so `MT5_LOCK` (in `executor.py`) serialises the executor and the snapshot job.
 While the executor retries (up to 30 min) the half-hourly snapshot is skipped ("Snapshot skipped" in the log); equity on the dashboard may lag. `null_result` triggers an automatic MT5 reconnect.
 

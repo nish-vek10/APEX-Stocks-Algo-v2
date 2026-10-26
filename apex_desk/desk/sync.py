@@ -26,7 +26,7 @@ log = logging.getLogger("desk.sync")
 STATIC = ["signal_date", "entry_date", "ticker", "tier", "setup", "setup_tags", "stage", "stage_name", "prev_stage", "close", "atr", "atr_pct",
           "ema10", "ema20", "ema50", "ema200", "dist200", "days_since_s2", "donchian_upper", "bb_lower", "bb_mid", "volume_ratio", "rsi",
           "avg_dollar_vol", "ref_entry", "stop_price", "stop_dist", "stop_pct", "est_shares", "est_risk", "est_notional", "risk_mult",
-          "sig_close", "as_of", "live_setup", "risk_pct_default", "last_decision", "last_decision_date"]
+          "sig_close", "as_of", "live_setup", "risk_pct_default", "last_decision", "last_decision_date", "broker_mode"]
 KEEP_DAYS = 60                      # synced window for tradable / starred signals (the cloud keeps them much longer)
 _last: Dict[str, int] = {}          # sid -> hash of the last pushed static payload (push only on change)
 _scan_thread: Optional[threading.Thread] = None

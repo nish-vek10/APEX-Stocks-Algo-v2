@@ -47,6 +47,24 @@ class Executor:
         db.kv_set("executor_snapshot", snap)
         return snap
 
+    # ── broker permissions (close-only etc.), shown on the dashboard before you review ─────────
+    def check_broker_modes(self) -> Dict[str, str]:
+        """Needs a connected broker. Flags tradable, unexecuted setups whose symbol the broker will not open (signals.broker_mode)."""
+        today = str(clock.now_utc().astimezone(clock.ET).date())
+        tickers = sorted({r["ticker"] for r in db.q(
+            f"SELECT ticker FROM signals WHERE exec_status IN ('none','queued') AND entry_date>=? AND {rules.tradable_sql()}", (today,))})
+        blocked: Dict[str, str] = {}
+        for t in tickers:
+            sym = self.broker.symbol_for(t)
+            mode = "no_symbol" if not sym else self.broker.trade_mode(sym)
+            val = mode if mode in rules.BLOCKED_MODES else None
+            db.x("UPDATE signals SET broker_mode=? WHERE ticker=? AND exec_status IN ('none','queued') AND entry_date>=?", (val, t, today))
+            if val:
+                blocked[t] = val
+        if blocked:
+            log.info("Broker blocks new trades on: %s", blocked)
+        return blocked
+
     # ── reconcile (broker closed a position natively, e.g. stop hit) ────────
     def reconcile(self) -> int:
         live = self.broker.live_tickets()
@@ -117,6 +135,9 @@ class Executor:
         sym = self.broker.symbol_for(t)
         if not sym:
             return "no_broker_symbol"
+        bm = self.broker.trade_mode(sym)
+        if bm in rules.BLOCKED_MODES:
+            return f"broker_{bm}"                          # e.g. broker_close_only (retcode 10044): never retried
         tk = self.broker.tick(sym)
         if tk is None:
             return "no_live_quote"
