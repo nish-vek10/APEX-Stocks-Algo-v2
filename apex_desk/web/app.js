@@ -85,9 +85,16 @@ setInterval(tick, 1000);
 function renderHero() {
   const s = state.status, c = s.counts, rev = c.trade + c.skip;
   $("#heroTitle").textContent = state.tab === "watch" ? `WATCHLIST FOR THE ${fmtDate(s.session_date)} US OPEN` : `REVIEW SETUPS FOR THE ${fmtDate(s.session_date)} US OPEN`;
+  const nb = t => `<b class="nb">${t}</b>`;                                  // bold chunk that never breaks across lines (dates, times)
+  const ln = t => `<span class="ln">${t}</span>`;                            // one sentence per line, so wrapping stays tidy
   $("#heroSub").innerHTML = state.tab === "watch"
-    ? `Older setups that were not traded stay here, tagged with their <b>signal date</b> and <b>last decision</b>. Their candles and numbers refresh after every daily scan. Trade any of them at the next open (<b>${s.open_london} London</b>), or leave them here.`
-    : `Latest signals formed at the close of <b>${fmtDate(s.board_date) || "n/a"}</b>. Orders go out at the US open on <b>${s.open_london} London</b>. Choose <b>Trade</b> or <b>Don't trade</b> for each setup, then confirm the batch before the cut-off. Older setups are on the <b>Watchlist tab</b>.`;
+    ? ln(`Older setups that were not traded stay here, tagged with their <b>signal date</b> and <b>last decision</b>.`) +
+      ln(`Candles and numbers refresh after every daily scan.`) +
+      ln(`Trade any of them at the next open on ${nb(s.open_london + " London")}, or leave them here.`)
+    : ln(`Latest signals formed at the close of ${nb(fmtDate(s.board_date) || "n/a")}.`) +
+      ln(`Orders go out at the US open on ${nb(s.open_london + " London")}.`) +
+      ln(`Choose <b>Trade</b> or <b>Don't trade</b> for each setup, then confirm the batch before the cut-off.`) +
+      ln(`Older setups are on the <b>Watchlist</b> tab.`);
   $("#revBar").style.width = (c.tradable ? rev / c.tradable * 100 : 0) + "%";
   $("#revText").textContent = `${rev} of ${c.tradable} tradable setups reviewed  ·  ${c.trade} Trade  ·  ${c.skip} Don't trade  ·  ${c.undecided} still to review`;
 }
@@ -111,7 +118,7 @@ function renderAction() {
   $("#btnUnlock").classList.toggle("hidden", !(c.queued > 0 && state.windowOpen));
   let t = `<b>${c.trade}</b> Trade, <b>${c.skip}</b> Don't trade, <b>${c.undecided}</b> still to review. `;
   if (queued) t += `<b>Batch locked.</b> Orders are placed at the US open (${s.open_london} London).`;
-  else if (!state.windowOpen) t += `Review is locked. It reopens with the next signal batch (${fmtDT(s.next_batch_utc)} London).`;
+  else if (!state.windowOpen) t += `Review is locked. It reopens with the next signal batch (<span class="nb">${fmtDT(s.next_batch_utc)} London</span>).`;
   else t += `Estimated risk ${usd(b.est_risk)} (${fmt(b.est_risk_pct, 2)}% of equity), notional ${usd(b.est_notional)}.`;
   $("#actionSummary").innerHTML = t;
   const msgs = [];

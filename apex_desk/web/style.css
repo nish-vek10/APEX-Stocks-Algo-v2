@@ -45,7 +45,9 @@ h1,h2,h3{font-family:var(--f-head);text-transform:uppercase;letter-spacing:.04em
 /* hero */
 .hero{display:flex;gap:28px;align-items:center;justify-content:space-between;padding:28px 28px 10px}
 .hero-l{flex:1;max-width:700px}.hero h1{margin:0 0 8px;font-size:25px;line-height:1.2}
-.hero p{font-size:14px;color:var(--mut);margin:0;max-width:640px}.hero p b{color:var(--txt);font-weight:700}
+.hero p{font-size:14px;line-height:1.65;color:var(--mut);margin:0;max-width:720px}.hero p b{color:var(--txt);font-weight:700}
+.hero p .ln{display:block;text-wrap:balance}.nb{white-space:nowrap}
+.hero h1{text-wrap:balance}
 .progress{height:8px;border-radius:99px;background:var(--panel2);overflow:hidden;margin:16px 0 7px;max-width:560px;border:1px solid var(--line)}
 #revBar{height:100%;width:0;background:linear-gradient(90deg,var(--acc),var(--ok));border-radius:99px;transition:width .6s;box-shadow:0 0 12px #22d39a66}
 .progress-l{font-size:12px;color:var(--mut)}
