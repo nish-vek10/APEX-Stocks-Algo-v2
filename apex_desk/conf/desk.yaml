@@ -66,6 +66,7 @@ timing:                                # all keyed to New York time, so UK/US DS
   cutoff_minutes_before_open: 60       # 60 min before 09:30 ET = 13:30 London (12:30 in the 1-2 week DST mismatch)
   scan_retry_min: 5                    # retry the scan every N minutes while the cache is stale
   scan_retry_max_hours: 15
+  late_grace_min: 45                   # data is "late" (banner, alert, audit row) only this long after the 17:20 ET scan time
   scan_time_et: "17:20"                # after the old scheduler's cache refresh (16:45) and signals (17:05)
   cache_time_et: "16:50"               # desk's own cache refresh after the close (Mon-Fri); waits for / tops up the old scheduler's run
   exec_time_et: "09:31"                # entries + exits at the open, same as the old scheduler

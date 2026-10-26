@@ -116,9 +116,8 @@ function renderAction() {
   $("#actionSummary").innerHTML = t;
   const msgs = [];
   if (!s.last_scan) msgs.push(["bad", "No scan has run yet. Click Re-scan, or wait for the scheduled scan at 17:20 ET (22:20 London)."]);
-  else if (s.last_scan.stale_cache) {
-    const ran = s.last_scan.ran_at ? `${fmtDate(s.last_scan.ran_at)} ${String(s.last_scan.ran_at).slice(11, 16)} UTC` : "n/a";
-    msgs.push(["warn", `Waiting for fresh data: the latest scan (${ran}) only found candles up to ${fmtDate(s.last_scan.signal_date)}. The desk retries every 5 minutes and publishes the new batch as soon as the old scheduler's cache refresh completes.`]);
+  else if (s.data_late && s.data_late.late) {                                    // only when the batch is genuinely overdue
+    msgs.push(["warn", `Signals for <b>${dmy(s.data_late.expected)}</b> are late: the price data has not refreshed yet (latest candles: ${dmy(s.data_late.have)}). The desk is retrying and will publish the new batch automatically.`]);
   }
   (b.warnings || []).forEach(w => msgs.push(["warn", w]));
   const bn = $("#banner"); bn.classList.toggle("hidden", !msgs.length);

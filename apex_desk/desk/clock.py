@@ -84,6 +84,27 @@ def next_batch_dt(now: Optional[datetime] = None) -> datetime:
     return scan_dt(d)
 
 
+def expected_signal_date(now: Optional[datetime] = None) -> pd.Timestamp:
+    """Latest trading day whose end-of-day data is due: its day's scan time (17:20 ET) has passed. Candles newer than this cannot exist yet
+    (e.g. on Monday during market hours the expected signal date is still Friday), so older data is only 'late' after this time."""
+    now = now or now_utc()
+    d = pd.Timestamp(now.astimezone(ET).date())
+    for _ in range(14):
+        if tc.is_trading_day(d) and scan_dt(d) <= now:
+            return d
+        d -= pd.Timedelta(days=1)
+    return d
+
+
+def data_late(have_signal_date: Optional[str], now: Optional[datetime] = None) -> Dict:
+    """Is the latest published batch older than expected, by more than `late_grace_min` after the scan time? (drives the dashboard banner)"""
+    now = now or now_utc()
+    exp = expected_signal_date(now)
+    grace = int(settings.cfg()["timing"].get("late_grace_min", 45))
+    late = bool(have_signal_date) and pd.Timestamp(have_signal_date) < exp and now >= scan_dt(exp) + timedelta(minutes=grace)
+    return {"late": late, "expected": str(exp.date()), "have": have_signal_date}
+
+
 def market(now: Optional[datetime] = None) -> Dict:
     now = now or now_utc()
     d = pd.Timestamp(now.astimezone(ET).date())

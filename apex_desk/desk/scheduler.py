@@ -32,6 +32,16 @@ def job_scan() -> None:
             break
         log.warning("Scan attempt %d not usable (stale cache or error): %s. Retrying in %d min.", n, r.get("signal_date") or r.get("error"), gap // 60)
         if r.get("stale_cache"):                           # old scheduler did not refresh the cache: do it ourselves (cheap no-op if fresh)
+            from desk import clock, db
+            late = clock.data_late(r.get("signal_date"))
+            if late["late"] and db.kv_get("late_flagged") != late["expected"]:           # one audit row + one alert per late batch, not per retry
+                db.kv_set("late_flagged", late["expected"])
+                db.audit("system", "scan_late", {"expected_signal_date": late["expected"], "latest_candles": late["have"]})
+                try:
+                    import prod.monitoring.alert as al
+                    al.send_alert(f"[APEX DESK] Signals for {late['expected']} are late: cache only has candles up to {late['have']}. Retrying.", level="WARNING")
+                except Exception:                          # noqa: BLE001
+                    pass
             from desk import cachebuild
             b = cachebuild.ensure_cache("stale cache at scan")
             if b.get("ran") and b.get("ok"):

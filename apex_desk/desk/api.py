@@ -65,6 +65,7 @@ def status() -> Dict[str, Any]:
                    "queued": tot(lambda r: r["exec_status"] == "queued"),
                    "executed": tot(lambda r: r["exec_status"] == "executed"),
                    },
+        "data_late": clock.data_late((db.kv_get("last_scan") or {}).get("signal_date")),
         "exposure": ex, "last_scan": db.kv_get("last_scan"), "executor": db.kv_get("executor_snapshot"),
         "scan_running": _scan_state["running"], "batch": rules.batch_preview(sess),
     }

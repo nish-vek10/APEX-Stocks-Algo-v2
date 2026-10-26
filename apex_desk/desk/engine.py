@@ -243,7 +243,9 @@ def run_scan(workers: Optional[int] = None, allow_stale: bool = False, asof: Opt
     if as_session:                         # TEST ONLY: treat these (older) signals as the current session's
         entry, allow_stale = session, True
         log.warning("TEST MODE: signals from %s relabelled as session %s", sig_date, session.date())
-    stale_cache = entry < session and not (allow_stale or asof)
+    stale_cache = pd.Timestamp(sig_date) < clock.expected_signal_date() and not (allow_stale or asof)   # older than the data that is due now
+    if not asof and not as_session and entry < session:
+        entry = session                    # data from before the open (e.g. scanned mid-session): label for the next open, as roll_forward would
     n_old = sum(1 for r in ok if r["last_date"] < sig_date)
 
     equity = float(db.kv_get("equity", settings.cfg()["risk"]["default_equity"]))
@@ -286,8 +288,11 @@ def run_scan(workers: Optional[int] = None, allow_stale: bool = False, asof: Opt
                "scanned": len(ok), "errors": len(errors), "tickers_with_older_last_bar": n_old,
                "tier_counts": counts, "watchlist_refreshed": refreshed, "stage9_exits_queued": exits, "seconds": round(time.time() - t0, 1),
                "ran_at": db.now_iso()}
-    db.kv_set("last_scan", summary)
-    db.audit("system", "scan", summary)
+    if stale_cache:                        # waiting for data: keep the last good batch info and the audit log quiet (scheduler flags it if late)
+        db.kv_set("last_scan_attempt", summary)
+    else:
+        db.kv_set("last_scan", summary)
+        db.audit("system", "scan", summary)
     log.info("Scan done: %s", summary)
     return summary
 
