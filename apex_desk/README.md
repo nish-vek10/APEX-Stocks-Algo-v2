@@ -104,7 +104,7 @@ Lightweight Charts from the same data the algo used, so what you see is exactly 
 
 ## Positions, Closed and History tabs (v4)
 - **Positions** = open trades. **Closed** = finished trades (exit date, days held, exit price, reason, P&L $, R). A position moves from Positions to Closed when the Stage-9 / time-stop exit fills or MT5 closes it (stop hit); the executor's `reconcile` detects it at the next run (09:31 ET). Positions are never deleted.
-- Sort order: Audit oldest first (by time); Positions oldest first by entry date, then ticker A-Z; Closed oldest first by exit date, then ticker; **History newest first** by signal date, then ticker A-Z. The tabs load the latest 100 audit / 300-500 history rows.
+- Sort order, newest first on all four tabs: Positions by entry date, Closed by exit date, History by signal date (each then ticker A-Z), Audit by time (then action A-Z). The tabs load the latest 100 audit / 300-500 history rows.
 - Every row in Positions, Closed and History starts with a tier tag (A / B / W / C) in the tier colour (A green, B amber, W blue, C grey) and a matching coloured strip at the row start.
 - Positions store the tier at entry (`positions.tier`, Supabase `desk_positions.tier`; run `docs/supabase_migration_v3.sql` once in the Supabase SQL editor before pulling on the Work PC).
 
