@@ -104,6 +104,7 @@ Lightweight Charts from the same data the algo used, so what you see is exactly 
 
 ## Positions, Closed and History tabs (v4)
 - **Positions** = open trades. **Closed** = finished trades (exit date, days held, exit price, reason, P&L $, R). A position moves from Positions to Closed when the Stage-9 / time-stop exit fills or MT5 closes it (stop hit); the executor's `reconcile` detects it at the next run (09:31 ET). Positions are never deleted.
+- Sort order (oldest first): Audit by time; Positions by entry date, then ticker A-Z; Closed by exit date, then ticker; History by signal date, then ticker. The newest rows are at the bottom (the tabs load the latest 100 audit / 300-500 history rows).
 - Every row in Positions, Closed and History starts with a tier tag (A / B / W / C) in the tier colour (A green, B amber, W blue, C grey) and a matching coloured strip at the row start.
 - Positions store the tier at entry (`positions.tier`, Supabase `desk_positions.tier`; run `docs/supabase_migration_v3.sql` once in the Supabase SQL editor before pulling on the Work PC).
 
@@ -133,6 +134,10 @@ override `conf/desk.yaml`, so `git pull` never conflicts | optional `TELEGRAM_*`
    Scan resilience: a `scan_startup` job runs 20 s after the scheduler starts; if the cache is stale the scan retries every `scan_retry_min` (5) minutes for up to `scan_retry_max_hours` (15), then syncs.
    The old scheduler must refresh the cache first (16:45 ET, `tools/build_td_cache.py`); if the old scheduler is down the desk keeps retrying but the data stays stale. Manual fix: run `python tools\build_td_cache.py` in the old project, then `python -m desk scan`.
    After any `git pull`, restart the scheduler (Ctrl+C, then `python -m desk scheduler`).
+   **Self-sufficient cache refresh (`desk/cachebuild.py`)** - the desk no longer depends on the old scheduler being up:
+   - `job_cache` runs Mon-Fri at `timing.cache_time_et` (16:50 ET, 21:50 London; Friday's close included) and runs `tools/build_td_cache.py` from the old repo root (read-only reuse, same cache files). If the old scheduler's refresh is still running it waits (up to 45 min) and then tops up; fresh tickers cost zero credits.
+   - Any stale scan (startup, 17:20 ET or a retry) triggers a build and an immediate rescan, at most once per 30 min (`cache_build.min_gap_min`). This covers a restart on Monday morning with Friday's data missing.
+   - Each build is audit-logged (`cache_build`), a failure sends an alert. Optional `cache_build:` block in `conf/desk.yaml` overrides `enabled`, `script`, `min_gap_min`, `timeout_min`, `wait_external_min`.
 5. Daily: review on Netlify before 13:30 London, press Trade all confirmed; paper (dry_run) or real demo orders at 09:31 ET.
 6. Go `DESK_MODE=live` only after one clean dry-run day; restart the scheduler; watch the first fills.
 Isolation: own SQLite DB, own magic number (20261001), own MT5 account, read-only use of the old price cache. Do not run a second scheduler on another PC (same account would double up orders).

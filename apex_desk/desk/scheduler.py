@@ -31,6 +31,11 @@ def job_scan() -> None:
             log.info("Scan OK on attempt %d: %s", n, r.get("tier_counts"))
             break
         log.warning("Scan attempt %d not usable (stale cache or error): %s. Retrying in %d min.", n, r.get("signal_date") or r.get("error"), gap // 60)
+        if r.get("stale_cache"):                           # old scheduler did not refresh the cache: do it ourselves (cheap no-op if fresh)
+            from desk import cachebuild
+            b = cachebuild.ensure_cache("stale cache at scan")
+            if b.get("ran") and b.get("ok"):
+                continue                                   # rescan immediately with the fresh cache
         if time.monotonic() > deadline:
             log.error("Scan gave up after %d attempts: cache never became fresh", n)
             break
@@ -54,6 +59,13 @@ def job_broker_modes() -> None:
         log.warning("broker mode check failed: %s", e)
     finally:
         MT5_LOCK.release()
+
+
+def job_cache() -> None:
+    """Daily cache refresh straight after the US close (Mon-Fri, so Friday's close is covered too); then an early scan attempt."""
+    from desk import cachebuild
+    b = cachebuild.ensure_cache("daily after the close", force=True)
+    log.info("Daily cache job: %s", b)
 
 
 def job_execute() -> None:
@@ -91,6 +103,8 @@ def main() -> None:
     eh, em = map(int, t["exec_time_et"].split(":"))
     sched = BlockingScheduler(timezone="America/New_York")
     sched.add_job(job_scan, "cron", day_of_week="mon-fri", hour=sh, minute=sm, id="scan", misfire_grace_time=3600)
+    ch, cm = map(int, str(t.get("cache_time_et", "16:50")).split(":"))
+    sched.add_job(job_cache, "cron", day_of_week="mon-fri", hour=ch, minute=cm, id="cache", misfire_grace_time=3600, max_instances=1)
     sched.add_job(job_execute, "cron", day_of_week="mon-fri", hour=eh, minute=em, id="execute", misfire_grace_time=600)
     sched.add_job(job_scan, "date", run_date=datetime.now(timezone.utc) + timedelta(seconds=20), id="scan_startup")   # catch up after restarts / late cache
     sched.add_job(job_snapshot, "interval", minutes=int(t["snapshot_every_min"]), id="snapshot")
