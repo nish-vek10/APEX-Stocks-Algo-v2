@@ -111,6 +111,8 @@ Lightweight Charts from the same data the algo used, so what you see is exactly 
 ## Executed tab (v5)
 - Tab after Watchlist. Every setup the executor **filled or failed**, grouped by session: newest session first, executed before failed, A-Z within each. Cards leave Signals / Watchlist after execution but stay here (last 90 days; charts synced for 45 days).
 - Executed card: entry fill, stop, shares, risk at stop, last close and open P&L (R multiple), plus the chart with the **Entry** line (blue), **Stop** line (red dashed), signal / entry / exit markers, and a shaded area of every daily close against the entry price (green = profit side, red = stop side). Closed trades show the exit line / marker, exit reason and realised P&L; their chart freezes after the exit day. Failed card: reason (e.g. Broker close only), signal close and planned stop.
+- Layout: each card has a 3 x 2 grid (entry fill, stop, shares / risk at stop, last close, open P&L or exit + result), every value with one small line underneath.
+- Refresh behaviour: the dashboard polls every 15 s but only re-renders what changed (`setHtml`), pauses while the browser tab is hidden and refreshes once when you return; poll and tab clicks never overlap. Charts are never rebuilt unless the trade list changes.
 - Charts refresh with every daily scan (sync uploads them again when the board date changes). Today's entry candle appears after tonight's data refresh.
 - Data: local `/api/trades`; cloud: `desk_signals` (executed / failed) joined to `desk_positions.sid` (run `docs/supabase_migration_v4.sql`).
 

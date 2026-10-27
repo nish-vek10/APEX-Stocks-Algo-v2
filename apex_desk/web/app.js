@@ -2,6 +2,8 @@
 (() => {
 "use strict";
 const $ = (s, r = document) => r.querySelector(s);
+// Re-render only when the content really changed: the 15 s refresh must not rebuild identical DOM (flicker, restarted animations, lost hover/scroll).
+const setHtml = (el, html) => { if (el.dataset.h === html) return false; el.innerHTML = html; el.dataset.h = html; return true; };
 const fmt = (n, d = 2) => n == null || isNaN(n) ? "-" : Number(n).toLocaleString("en-GB", {minimumFractionDigits: d, maximumFractionDigits: d});
 const pct = (n, d = 1) => n == null ? "-" : (n * 100).toFixed(d) + "%";
 const usd = n => n == null ? "-" : "$" + fmt(n, 0);
@@ -87,14 +89,14 @@ function renderHero() {
   $("#heroTitle").textContent = state.tab === "watch" ? `WATCHLIST FOR THE ${fmtDate(s.session_date)} US OPEN` : `REVIEW SETUPS FOR THE ${fmtDate(s.session_date)} US OPEN`;
   const nb = t => `<b class="nb">${t}</b>`;                                  // bold chunk that never breaks across lines (dates, times)
   const ln = t => `<span class="ln">${t}</span>`;                            // one sentence per line, so wrapping stays tidy
-  $("#heroSub").innerHTML = state.tab === "watch"
+  setHtml($("#heroSub"), state.tab === "watch"
     ? ln(`Older setups that were not traded stay here, tagged with their <b>signal date</b> and <b>last decision</b>.`) +
       ln(`Candles and numbers refresh after every daily scan.`) +
       ln(`Trade any of them at the next open on ${nb(s.open_london + " London")}, or leave them here.`)
     : ln(`Latest signals formed at the close of ${nb(fmtDate(s.board_date) || "n/a")}.`) +
       ln(`Orders go out at the US open on ${nb(s.open_london + " London")}.`) +
       ln(`Choose <b>Trade</b> or <b>Don't trade</b> for each setup, then confirm the batch before the cut-off.`) +
-      ln(`Older setups are on the <b>Watchlist</b> tab.`);
+      ln(`Older setups are on the <b>Watchlist</b> tab.`));
   $("#revBar").style.width = (c.tradable ? rev / c.tradable * 100 : 0) + "%";
   $("#revText").textContent = `${rev} of ${c.tradable} tradable setups reviewed  ·  ${c.trade} Trade  ·  ${c.skip} Don't trade  ·  ${c.undecided} still to review`;
 }
@@ -110,7 +112,7 @@ function renderKpis() {
     ["Open stop risk", fmt(ex.open_risk_pct, 1) + "%", `${usd(ex.open_risk)} lost if every stop is hit`, ex.open_risk_pct > 30 ? "warn" : "", Math.min(100, ex.open_risk_pct / 40 * 100)],
     ["Equity", usd(s.equity), s.executor ? `${String(s.executor.broker).toUpperCase()} snapshot at ${s.executor.ts.slice(11, 16)} UTC` : "No broker snapshot yet", "", null],
   ];
-  $("#kpis").innerHTML = k.map(([t, v, sub, cls, bar]) => `<div class="kpi ${cls}"><small>${t}</small><b>${v}</b><em>${sub}</em>${bar == null ? "" : `<div class="bar"><i style="width:${bar}%"></i></div>`}</div>`).join("");
+  setHtml($("#kpis"), k.map(([t, v, sub, cls, bar]) => `<div class="kpi ${cls}"><small>${t}</small><b>${v}</b><em>${sub}</em>${bar == null ? "" : `<div class="bar"><i style="width:${bar}%"></i></div>`}</div>`).join(""));
 }
 function renderAction() {
   const s = state.status, b = s.batch, c = s.counts, queued = c.queued > 0 || c.executed > 0;
@@ -121,7 +123,7 @@ function renderAction() {
   if (queued) t += `<b>Batch locked.</b> Orders are placed at the US open (${s.open_london} London).`;
   else if (!state.windowOpen) t += `Review is locked. It reopens with the next signal batch (<span class="nb">${fmtDT(s.next_batch_utc)} London</span>).`;
   else t += `Estimated risk ${usd(b.est_risk)} (${fmt(b.est_risk_pct, 2)}% of equity), notional ${usd(b.est_notional)}.`;
-  $("#actionSummary").innerHTML = t;
+  setHtml($("#actionSummary"), t);
   const msgs = [];
   if (!s.last_scan) msgs.push(["bad", "No scan has run yet. Click Re-scan, or wait for the scheduled scan at 17:20 ET (22:20 London)."]);
   else if (s.data_late && s.data_late.late) {                                    // only when the batch is genuinely overdue
@@ -129,7 +131,7 @@ function renderAction() {
   }
   (b.warnings || []).forEach(w => msgs.push(["warn", w]));
   const bn = $("#banner"); bn.classList.toggle("hidden", !msgs.length);
-  if (msgs.length) { bn.className = "banner " + msgs[0][0]; bn.innerHTML = msgs.map(m => m[1]).join("<br>"); }
+  if (msgs.length) { bn.className = "banner " + msgs[0][0]; setHtml(bn, msgs.map(m => m[1]).join("<br>")); }
 }
 
 // ---------- chips / legend / filters ----------
@@ -139,10 +141,10 @@ function renderChips() {
   const c = {tradable: tr.length, undecided: tr.filter(x => x.decision === "none").length, trade: tr.filter(x => x.decision === "trade").length, skip: tr.filter(x => x.decision === "skip").length};
   const defs = [["tradable", "All tradable", c.tradable], ["A", "A", bt.A || 0, "var(--tA)", T.A.label], ["B", "B", bt.B || 0, "var(--tB)", T.B.label], ["W", "W", bt.W || 0, "var(--tW)", T.W.label],
     ["undec", "Still to review", c.undecided], ["trade", "Trade", c.trade], ["skip", "Don't trade", c.skip], ["C", "Info only", bt.C || 0]];
-  $("#chips").innerHTML = defs.map(([k, l, n, col, tip]) => `<button class="chip ${state.filter === k ? "on" : ""}" data-k="${k}" ${tip ? `title="${tip}"` : ""}>${col ? `<b class="ltr" style="color:${col}">${k}</b>${tip}` : l}<i>${n}</i></button>`).join("");
-  $("#chips").querySelectorAll(".chip").forEach(b => b.onclick = () => { state.filter = b.dataset.k; state.limit = 40; renderChips(); renderList(true); });
+  if (setHtml($("#chips"), defs.map(([k, l, n, col, tip]) => `<button class="chip ${state.filter === k ? "on" : ""}" data-k="${k}" ${tip ? `title="${tip}"` : ""}>${col ? `<b class="ltr" style="color:${col}">${k}</b>${tip}` : l}<i>${n}</i></button>`).join("")))
+    $("#chips").querySelectorAll(".chip").forEach(b => b.onclick = () => { state.filter = b.dataset.k; state.limit = 40; renderChips(); renderList(true); });
   const sel = $("#setupSel"); if (sel.options.length <= 1) Object.entries(state.status.setup_info).forEach(([k, v]) => sel.add(new Option(v.label, k)));
-  $("#tierLegend").innerHTML = ["A", "B", "W"].map(k => `<span><b style="color:var(--t${k})">${k}</b> ${T[k].label}: ${T[k].backtest} (risk ×${T[k].risk_mult})</span>`).join("");
+  setHtml($("#tierLegend"), ["A", "B", "W"].map(k => `<span><b style="color:var(--t${k})">${k}</b> ${T[k].label}: ${T[k].backtest} (risk ×${T[k].risk_mult})</span>`).join(""));
 }
 function visibleSignals() {
   let r = tabRows(); const f = state.filter;
@@ -301,7 +303,7 @@ function renderList(rebuild) {
 }
 
 // ---------- tables ----------
-const T = (el, cols, rows, rowCls) => { el.innerHTML = `<thead><tr>${cols.map(c => `<th>${c[0]}</th>`).join("")}</tr></thead><tbody>${rows.map(r => `<tr class="${rowCls ? rowCls(r) : ""}">${cols.map(c => `<td>${c[1](r) ?? ""}</td>`).join("")}</tr>`).join("") || `<tr><td colspan="${cols.length}" class="muted">Nothing to show yet.</td></tr>`}</tbody>`; };
+const T = (el, cols, rows, rowCls) => { setHtml(el, `<thead><tr>${cols.map(c => `<th>${c[0]}</th>`).join("")}</tr></thead><tbody>${rows.map(r => `<tr class="${rowCls ? rowCls(r) : ""}">${cols.map(c => `<td>${c[1](r) ?? ""}</td>`).join("")}</tr>`).join("") || `<tr><td colspan="${cols.length}" class="muted">Nothing to show yet.</td></tr>`}</tbody>`); };
 const tierOf = r => ["A", "B", "W", "C"].includes(r.tier) ? r.tier : "";
 const tierCls = r => tierOf(r) ? "r" + tierOf(r) : "";                                   // coloured strip at the row start
 const tkCell = r => `${tierOf(r) ? `<span class="badge b-${tierOf(r)} tg">${tierOf(r)}</span>` : ""}<b>${r.ticker}</b>`;   // tier tag + ticker
@@ -324,19 +326,23 @@ const reasonTxt = d => { const s = String(d || "unknown").replace(/\(.*\)/, "").
 function tradeCardHtml(r) {
   const ok = r.exec_status === "executed", closed = ok && r.pos_status === "closed", tier = tierOf(r), T = state.status.tiers[r.tier] || {};
   const stopPct = ok && r.entry_price ? r.stop_price / r.entry_price - 1 : (r.sig_close ? r.ref_stop / r.sig_close - 1 : null);
-  const m = (l, v, f) => `<div><small>${l}</small><b${f ? ` data-f="${f}"` : ""}>${v}</b></div>`;
+  // 3 x 2 grid: label / value / one small line underneath, so nothing overflows or wraps awkwardly
+  const m = (l, v, s, f) => `<div${f ? ` data-f="${f}"` : ""}><small>${l}</small><b class="v">${v}</b><em class="s">${s || "&nbsp;"}</em></div>`;
+  const rr = x => x == null ? "" : `${x >= 0 ? "+" : ""}${x.toFixed(2)}R`;
   const cells = ok
-    ? m("Entry fill", `$${fmt(r.entry_price, 4)}`) + m("Stop", `$${fmt(r.stop_price, 4)} <span class="muted">(${pct(stopPct)})</span>`) + m("Shares", fmt(r.shares, 0)) +
-      m("Risk at stop", usd(r.shares * r.stop_distance)) + (closed ? m("Exit", `$${fmt(r.exit_price, 4)} <span class="muted">${reasonTxt(r.exit_reason)}</span>`) : m("Last close", "...", "last")) +
-      (closed ? m("Result", `${pnlCell(r.pnl_total)} <span class="muted">${r.pnl_r == null ? "" : (r.pnl_r >= 0 ? "+" : "") + r.pnl_r.toFixed(2) + "R"}</span>`) : m("Open P&amp;L", "...", "pnl"))
-    : m("Why it failed", reasonTxt(r.exec_detail)) + m("Signal close", `$${fmt(r.sig_close)}`) + m("Stop (ref)", `$${fmt(r.ref_stop)} <span class="muted">(${pct(stopPct)})</span>`) +
-      m("Planned size", fmt(r.est_shares, 0) + " sh") + m("Planned risk", usd(r.est_risk)) + m("Session", fmtDate(r.entry_date));
+    ? m("Entry fill", `$${fmt(r.entry_price, 2)}`, `${dmy(r.pos_entry_date || r.entry_date)} at the open`) + m("Stop", `$${fmt(r.stop_price, 2)}`, `${pct(stopPct)} from entry`) +
+      m("Shares", fmt(r.shares, 0), r.mt5_volume && r.mt5_volume !== r.shares ? `${fmt(r.mt5_volume, 2)} lots` : "") +
+      m("Risk at stop", usd(r.shares * r.stop_distance), r.risk_pct ? `${(r.risk_pct * 100).toFixed(2)}% risk setting` : "") +
+      (closed ? m("Exit", `$${fmt(r.exit_price, 2)}`, `${dmy(r.exit_date)} · ${reasonTxt(r.exit_reason)}`) : m("Last close", "...", "", "last")) +
+      (closed ? m("Result", pnlCell(r.pnl_total), rr(r.pnl_r)) : m("Open P&amp;L", "...", "", "pnl"))
+    : m("Why it failed", reasonTxt(r.exec_detail), "order not placed") + m("Signal close", `$${fmt(r.sig_close, 2)}`, `signal ${dmy(r.signal_date)}`) + m("Stop (ref)", `$${fmt(r.ref_stop, 2)}`, `${pct(stopPct)} from signal close`) +
+      m("Planned size", `${fmt(r.est_shares, 0)} sh`, "") + m("Planned risk", usd(r.est_risk), r.risk_pct ? `${(r.risk_pct * 100).toFixed(2)}% risk setting` : "") + m("Session", fmtDate(r.entry_date), "target open");
   return `<div class="chead">${tier ? `<span class="badge b-${tier}">${tier}</span>` : ""}<span class="tk">${r.ticker}</span>
     <span class="badge ${ok ? "b-ok" : "b-bad"}">${ok ? "EXECUTED" : "FAILED"}</span>${ok ? `<span class="badge b-s">${closed ? "CLOSED " + dmy(r.exit_date) : "OPEN"}</span>` : ""}
     <span class="badge b-age">Signal ${dmy(r.signal_date)}</span>
     <span class="right"><a href="https://www.tradingview.com/chart/?symbol=${r.ticker}" target="_blank" rel="noopener">OPEN IN TRADINGVIEW &#8599;</a></span></div>
     <div class="hint-bt">${ok ? `Entered ${dmy(r.pos_entry_date || r.entry_date)} at the US open. Green shading = price above entry (profit), red shading = price below entry (towards the stop).` : `Order was not placed. The line shows the signal close and the planned stop.`}</div>
-    <div class="metrics">${cells}</div><div class="chart" data-f="chart"><div class="ph">Loading chart…</div></div>`;
+    <div class="metrics tmx">${cells}</div><div class="chart" data-f="chart"><div class="ph">Loading chart…</div></div>`;
 }
 async function loadTradeChart(el) {
   const r = exec.rows.get(el.dataset.id), host = el.querySelector('[data-f="chart"]');
@@ -364,10 +370,15 @@ async function loadTradeChart(el) {
       }
       const last = d.candles[d.candles.length - 1], lc = el.querySelector('[data-f="last"]'), pl = el.querySelector('[data-f="pnl"]');
       if (last && lc && pl) {
-        const chg = last.close / r.entry_price - 1, usdPl = (last.close - r.entry_price) * r.shares, rr = r.stop_distance ? (last.close - r.entry_price) / r.stop_distance : null, col = `var(--${chg >= 0 ? "ok" : "bad"})`;
-        lc.innerHTML = `$${fmt(last.close, 4)} <span style="color:${col}">${chg >= 0 ? "+" : ""}${(chg * 100).toFixed(1)}%</span> <span class="muted">${fmtDate(last.time)}</span>`;
-        pl.innerHTML = `${pnlCell(usdPl)} <span class="muted">${rr == null ? "" : (rr >= 0 ? "+" : "") + rr.toFixed(2) + "R"}</span>`;
-        if (!after.length) lc.innerHTML += ` <span class="muted">(entry candle appears after tonight's data refresh)</span>`;
+        const put = (c, v, s) => { c.querySelector(".v").innerHTML = v; c.querySelector(".s").innerHTML = s || "&nbsp;"; };
+        const chg = last.close / r.entry_price - 1, usdPl = (last.close - r.entry_price) * r.shares, rm = r.stop_distance ? (last.close - r.entry_price) / r.stop_distance : null;
+        const col = `var(--${chg >= 0 ? "ok" : "bad"})`;
+        if (after.length) {
+          put(lc, `$${fmt(last.close, 2)}`, `<span style="color:${col}">${chg >= 0 ? "+" : ""}${(chg * 100).toFixed(1)}%</span> vs entry · ${fmtDate(last.time)}`);
+          put(pl, pnlCell(usdPl), rm == null ? "" : `${rm >= 0 ? "+" : ""}${rm.toFixed(2)}R`);
+        } else {                                                                   // entry day's candle is not in the data yet (EOD data): nothing to compare
+          put(lc, `$${fmt(last.close, 2)}`, `${fmtDate(last.time)} · before entry`); put(pl, "&ndash;", "starts with the next daily candle");
+        }
       }
     } else {
       cs.createPriceLine({price: r.sig_close, color: "#cfd8ee", lineWidth: 1, lineStyle: 3, title: "Signal close"});
@@ -382,6 +393,10 @@ async function loadTradeChart(el) {
   } catch (e) { host.innerHTML = `<div class="ph" style="animation:none">Chart unavailable: ${e.message}</div>`; }
 }
 async function loadExec() {
+  if (exec.busy) return; exec.busy = true;                                         // tab click and the 15 s poll must never overlap (duplicate cards)
+  try { await loadExecInner(); } finally { exec.busy = false; }
+}
+async function loadExecInner() {
   const rows = await api("/api/trades"), key = rows.map(r => [r.sid || r.id, r.exec_status, r.pos_status, r.exit_date, r.entry_price].join("|")).join(";");
   if (key === exec.sig) return;                                                    // nothing changed: keep the charts (this tab refreshes every 15 s)
   exec.sig = key; exec.charts.forEach(c => { try { c.remove(); } catch (e) {} }); exec.charts = []; exec.rows.clear();
@@ -442,5 +457,6 @@ async function refresh() {
     tick(); renderHero(); renderKpis(); renderChips(); renderList(false); renderAction();
   } catch (e) { toast("Cannot load the desk data: " + e.message, true); }
 }
-(window.DESK_READY || Promise.resolve()).then(() => { refresh(); setInterval(async () => { await refresh(); if (!sv()) loadTab(state.tab); }, 15000); });
+const poll = async () => { if (document.hidden || poll.busy) return; poll.busy = true; try { await refresh(); if (!sv()) await loadTab(state.tab); } catch (e) { /* refresh() reports its own errors */ } finally { poll.busy = false; } };
+(window.DESK_READY || Promise.resolve()).then(() => { refresh(); setInterval(poll, 15000); document.addEventListener("visibilitychange", () => { if (!document.hidden) poll(); }); });
 })();
