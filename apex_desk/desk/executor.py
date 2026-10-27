@@ -61,8 +61,9 @@ class Executor:
             db.x("UPDATE signals SET broker_mode=? WHERE ticker=? AND exec_status IN ('none','queued') AND entry_date>=?", (val, t, today))
             if val:
                 blocked[t] = val
-        if blocked:
-            log.info("Broker blocks new trades on: %s", blocked)
+        if blocked != (db.kv_get("broker_blocked") or {}):                 # log only when the list changes (runs every 30 min)
+            log.info("Broker blocks new trades on: %s", blocked or "nothing")
+            db.kv_set("broker_blocked", blocked)
         return blocked
 
     # ── reconcile (broker closed a position natively, e.g. stop hit) ────────

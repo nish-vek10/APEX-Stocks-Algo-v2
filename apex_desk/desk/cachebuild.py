@@ -7,6 +7,7 @@ fresh (zero API credits), so running it after the old scheduler has finished is 
 from __future__ import annotations
 
 import logging
+import os
 import subprocess
 import sys
 import threading
@@ -28,16 +29,20 @@ def _external_build_running() -> bool:
     """True while another process (the old scheduler's cache refresh) is running build_td_cache.py."""
     try:
         import psutil
-        for p in psutil.process_iter(["cmdline"]):
-            if "build_td_cache" in " ".join(p.info.get("cmdline") or []):
+        me = os.getpid()
+        for p in psutil.process_iter(["cmdline", "name", "pid"]):
+            if p.info["pid"] != me and "python" in (p.info.get("name") or "").lower() and "build_td_cache" in " ".join(p.info.get("cmdline") or []):
                 return True
         return False
     except ImportError:
         pass
     try:
+        # NOTE: only python processes, and never the query's own powershell (its command line contains the search text and matched itself,
+        # which made every check report "build running" and cost a 45 min wait)
         out = subprocess.run(["powershell", "-NoProfile", "-Command",
-                              "Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*build_td_cache*' } | "
-                              "Select-Object -ExpandProperty ProcessId"], capture_output=True, text=True, timeout=30).stdout
+                              "Get-CimInstance Win32_Process -Filter \"Name like 'python%'\" | "
+                              "Where-Object { $_.CommandLine -like '*build_td_cache*' } | Select-Object -ExpandProperty ProcessId"],
+                             capture_output=True, text=True, timeout=30).stdout
         return bool(out.strip())
     except Exception:                                      # noqa: BLE001
         return False
