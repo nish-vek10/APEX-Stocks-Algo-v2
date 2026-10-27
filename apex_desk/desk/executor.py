@@ -55,8 +55,14 @@ class Executor:
             f"SELECT ticker FROM signals WHERE exec_status IN ('none','queued') AND entry_date>=? AND {rules.tradable_sql()}", (today,))})
         blocked: Dict[str, str] = {}
         for t in tickers:
-            sym = self.broker.symbol_for(t)
-            mode = "no_symbol" if not sym else self.broker.trade_mode(sym)
+            cands = self.broker.candidates(t)
+            modes = [self.broker.trade_mode(c) for c in cands]
+            if not cands:
+                mode = "no_symbol"
+            elif all(m in rules.BLOCKED_MODES for m in modes):
+                mode = next(m for m in modes if m in rules.BLOCKED_MODES)                  # blocked only if EVERY variant is blocked
+            else:
+                mode = "full"
             val = mode if mode in rules.BLOCKED_MODES else None
             db.x("UPDATE signals SET broker_mode=? WHERE ticker=? AND exec_status IN ('none','queued') AND entry_date>=?", (val, t, today))
             if val:
@@ -133,19 +139,28 @@ class Executor:
         """None on success, else a failure reason ('no_live_quote' is retried by the caller)."""
         rk, st = self.c["risk"], self.c["strategy"]
         t = sig["ticker"]
-        sym = self.broker.symbol_for(t)
-        if not sym:
+        cands = self.broker.candidates(t)
+        if not cands:
             return "no_broker_symbol"
-        bm = self.broker.trade_mode(sym)
-        if bm in rules.BLOCKED_MODES:
-            return f"broker_{bm}"                          # e.g. broker_close_only (retcode 10044): never retried
-        tk = self.broker.tick(sym)
+        # first variant (mapped symbol, then .NAS-24 / .NYSE-24 / .NAS / .NYSE) that the broker allows to open AND quotes right now
+        sym, tk, blocked = "", None, None
+        for c in cands:
+            bm = self.broker.trade_mode(c)
+            if bm in rules.BLOCKED_MODES:
+                blocked = blocked or f"broker_{bm}"        # e.g. broker_close_only (retcode 10044)
+                continue
+            q = self.broker.tick(c)
+            if q is not None:
+                sym, tk = c, q
+                break
         if tk is None:
-            return "no_live_quote"
+            return blocked if blocked and all(self.broker.trade_mode(c) in rules.BLOCKED_MODES for c in cands) else "no_live_quote"
+        if sym != cands[0]:
+            log.info("%s: using %s (preferred %s had no quote or is not tradable)", t, sym, cands[0])
         entry = float(tk.ask)
         if entry <= 0:
             return "no_valid_price"
-        if entry < float(st["min_price"]):
+        if float(st.get("min_price") or 0) > 0 and entry < float(st["min_price"]):      # optional floor; 0 = no minimum price
             return "below_min_price"
         atr = float(sig["atr"] or 0)
         stop_dist = max(atr * float(st["atr_multiplier"]), entry * float(st["stop_floor_pct"]))

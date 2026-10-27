@@ -185,6 +185,18 @@ def positions(status: str = "open") -> Any:
     return db.q(f"SELECT * FROM positions WHERE status=? ORDER BY {order}", (status,))
 
 
+@app.get("/api/trades")
+def trades(days: int = Query(90, le=400)) -> Any:
+    """Executed + failed entries (one row each) with their position (fill, stop, exit) for the Executed tab."""
+    since = str((clock.now_utc() - __import__("datetime").timedelta(days=days)).date())
+    return db.q("SELECT s.signal_date || '|' || s.ticker AS sid, s.id, s.signal_date, s.entry_date, s.ticker, s.tier, s.setup, s.exec_status, s.exec_detail, "
+                "s.watch, s.sig_close, s.stop_price AS ref_stop, s.risk_pct, s.est_shares, s.est_risk, "
+                "p.ticket, p.broker_symbol, p.entry_date AS pos_entry_date, p.entry_price, p.stop_price, p.shares, p.mt5_volume, p.stop_distance, "
+                "p.status AS pos_status, p.exit_date, p.exit_price, p.exit_reason, p.pnl_total, p.pnl_r "
+                "FROM signals s LEFT JOIN positions p ON p.signal_id=s.id "
+                "WHERE s.exec_status IN ('executed','failed') AND s.entry_date>=? ORDER BY s.entry_date DESC, s.ticker", (since,))
+
+
 @app.get("/api/executions")
 def executions(limit: int = Query(100, le=500)) -> Any:
     return db.q("SELECT * FROM executions ORDER BY id DESC LIMIT ?", (limit,))

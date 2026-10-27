@@ -81,6 +81,14 @@ async function api(path, opt) {
   if (p === "/api/batch/unlock") return {unlocked: ok(await sb.rpc("desk_unlock_batch", {p_entry_date: cache.sessDate, p_by: body.by}))};
   if (p === "/api/scan") { ok(await sb.rpc("desk_request_scan", {p_by: "web"})); return {started: true}; }
   if (p === "/api/positions") { const st = u.searchParams.get("status") === "closed" ? "closed" : "open"; return ok(await sb.from("desk_positions").select("*").eq("status", st).order(st === "closed" ? "exit_date" : "entry_date", {ascending: false}).limit(500)); }
+  if (p === "/api/trades") {                                                    // executed + failed entries joined to their position (fill / stop / exit)
+    const since = new Date(Date.now() - 90 * 864e5).toISOString().slice(0, 10);
+    const sg = ok(await sb.from("desk_signals").select("sid,signal_date,entry_date,ticker,tier,setup,exec_status,exec_detail,watch,sig_close,stop_price,risk_pct,est_shares,est_risk").in("exec_status", ["executed", "failed"]).gte("entry_date", since).order("entry_date", {ascending: false}).limit(1000));
+    const ps = ok(await sb.from("desk_positions").select("*").not("sid", "is", null).limit(2000)), by = {};
+    ps.forEach(q => by[q.sid] = q);
+    return sg.map(s => { const q = by[s.sid] || {}; return {...s, id: s.sid, ref_stop: s.stop_price, ticket: q.ticket, broker_symbol: q.broker_symbol, pos_entry_date: q.entry_date, entry_price: q.entry_price, stop_price: q.stop_price, shares: q.shares,
+      mt5_volume: q.mt5_volume, stop_distance: q.stop_distance, pos_status: q.status, exit_date: q.exit_date, exit_price: q.exit_price, exit_reason: q.exit_reason, pnl_total: q.pnl_total, pnl_r: q.pnl_r}; });
+  }
   if (p === "/api/history") return ok(await sb.from("desk_signals").select("signal_date,entry_date,ticker,tier,setup,decision,decided_by,exec_status,dist200,days_since_s2,watch,last_decision,last_decision_date,risk_pct").or("tier.in.(A,B,W),watch.eq.true").order("signal_date", {ascending: false}).limit(500));
   if (p === "/api/audit") return ok(await sb.from("desk_audit").select("*").order("id", {ascending: false}).limit(100));
   throw new Error("Unsupported in cloud mode: " + p);

@@ -43,7 +43,7 @@ strategy:                              # validated in research/dislocation_study
     W3:  {label: "EMA50 reclaim", backtest: ">=25% below: closes back above EMA50: +0.20R, ~2.3/day"}
   manual_risk_mult: 0.5                # default risk multiple for starred info-only (tier C) setups
   show_tier_c: true                    # every other breakout, greyed, info only
-  min_price: 2.0                       # penny-stock floor (SSII lesson)
+  min_price: 0.0                       # 0 = no minimum price (setups are reviewed manually); set e.g. 2.0 to re-enable a penny-stock floor
   atr_period: 14
   atr_multiplier: 3.5                  # LOCKED 3.5x: best in the 2x-3.5x band (study: +51% CAGR, -63% maxDD at >=25% below EMA200, Stage 2 <=40, 3 per ticker)
   stop_floor_pct: 0.005

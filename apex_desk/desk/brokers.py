@@ -41,6 +41,10 @@ class BaseBroker:
     def live_tickets(self) -> Optional[set]: return None
     def closing_info(self, ticket: int, fallback: float) -> Dict[str, Any]: return {"price": fallback, "detail": "no history"}
     def trade_mode(self, symbol: str) -> str: return "full"        # full | long_only | short_only | close_only | disabled | unknown
+    def candidates(self, ticker: str) -> List[str]:
+        """Every broker symbol this ticker can trade as, preferred first (mapped symbol, then the other .NAS/.NYSE/-24 variants)."""
+        s = self.symbol_for(ticker)
+        return [s] if s else []
 
 
 class MT5Broker(BaseBroker):
@@ -88,6 +92,22 @@ class MT5Broker(BaseBroker):
         except Exception as exc:                           # noqa: BLE001
             log.debug("symbol lookup failed for %s: %s", ticker, exc)
         return ""
+
+    def candidates(self, ticker: str) -> List[str]:
+        """Mapped symbol first, then every other existing variant (.NAS-24 / .NYSE-24 / .NAS / .NYSE): some feeds are dead or close-only."""
+        out: List[str] = []
+        first = self.symbol_for(ticker)
+        if first:
+            out.append(first)
+        try:
+            import MetaTrader5 as mt5
+            for suf in self.SUFFIXES:
+                s = ticker + suf
+                if s not in out and mt5.symbol_info(s) is not None:
+                    out.append(s)
+        except Exception as exc:                           # noqa: BLE001
+            log.debug("candidate lookup failed for %s: %s", ticker, exc)
+        return out
 
     def tick(self, symbol: str):
         from prod.execution.order_builder import get_live_tick

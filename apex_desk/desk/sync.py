@@ -27,7 +27,8 @@ STATIC = ["signal_date", "entry_date", "ticker", "tier", "setup", "setup_tags", 
           "ema10", "ema20", "ema50", "ema200", "dist200", "days_since_s2", "donchian_upper", "bb_lower", "bb_mid", "volume_ratio", "rsi",
           "avg_dollar_vol", "ref_entry", "stop_price", "stop_dist", "stop_pct", "est_shares", "est_risk", "est_notional", "risk_mult",
           "sig_close", "as_of", "live_setup", "risk_pct_default", "last_decision", "last_decision_date", "broker_mode"]
-KEEP_DAYS = 60                      # synced window for tradable / starred signals (the cloud keeps them much longer)
+TRADE_CHART_DAYS = 45               # executed / failed trades keep a synced chart for the Executed tab this long
+KEEP_DAYS = 60                     # synced window for tradable / starred signals (the cloud keeps them much longer)
 _last: Dict[str, int] = {}          # sid -> hash of the last pushed static payload (push only on change)
 _scan_thread: Optional[threading.Thread] = None
 
@@ -114,16 +115,26 @@ def _push_changed(c: Cloud, rows: List[Dict[str, Any]]) -> int:
 def _push_charts(c: Cloud, rows: List[Dict[str, Any]]) -> int:
     done = db.kv_get("chart_pushed") or {}
     have = {r["sid"] for r in c.get("desk_charts", select="sid", limit="10000")}
+    board = (db.kv_get("last_scan") or {}).get("signal_date") or ""
+    since = str((clock.now_utc() - timedelta(days=TRADE_CHART_DAYS)).date())
+    closed = {r["sid"]: r["exit_date"] for r in db.q("SELECT s.signal_date || '|' || s.ticker AS sid, p.exit_date FROM positions p "
+                                                       "JOIN signals s ON s.id=p.signal_id WHERE p.status='closed'")}
     n = 0
     for r in rows:
         sid = sid_of(r)
-        if not rules.is_tradable(r) or r["exec_status"] != "none":
+        if not rules.is_tradable(r):
             continue
-        if sid in have and done.get(sid) == r.get("as_of"):
+        if r["exec_status"] == "none":
+            token = r.get("as_of")
+        elif r["exec_status"] in ("executed", "failed") and r["entry_date"] >= since:      # Executed tab: refresh daily so the latest price is current
+            token = f"closed:{closed[sid]}" if sid in closed else f"board:{board}"            # a closed trade's chart is frozen after the exit day
+        else:
+            continue
+        if sid in have and done.get(sid) == token:
             continue
         try:
             c.upsert("desk_charts", [{"sid": sid, "payload": engine.chart_payload(r["ticker"]), "created_at": db.now_iso()}], "sid")
-            done[sid] = r.get("as_of")
+            done[sid] = token
             n += 1
         except FileNotFoundError:
             continue
@@ -198,7 +209,9 @@ def _push_status(c: Cloud) -> None:
 
 
 def _push_positions_audit(c: Cloud) -> None:
-    pos = db.q("SELECT id,ticker,broker_symbol,ticket,entry_date,entry_price,stop_price,shares,mt5_volume,stop_distance,status,exit_date,exit_price,exit_reason,pnl_total,pnl_r,tier FROM positions")
+    pos = db.q("SELECT p.id,p.ticker,p.broker_symbol,p.ticket,p.entry_date,p.entry_price,p.stop_price,p.shares,p.mt5_volume,p.stop_distance,p.status,"
+               "p.exit_date,p.exit_price,p.exit_reason,p.pnl_total,p.pnl_r,p.tier,s.signal_date || '|' || s.ticker AS sid "
+               "FROM positions p LEFT JOIN signals s ON s.id=p.signal_id")
     if pos:
         c.upsert("desk_positions", pos, "id")
     aud = db.q("SELECT id,ts,actor,action,detail FROM audit ORDER BY id DESC LIMIT 200")

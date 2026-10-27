@@ -239,6 +239,20 @@ function buildCard(s) {
   }
   decorate(s, el); io.observe(el); return el;
 }
+function baseChart(host) {                                                     // shared chart look (signal cards and Executed cards)
+  return LightweightCharts.createChart(host, {width: host.clientWidth, height: host.clientHeight, layout: {background: {type: "solid", color: "rgba(0,0,0,0)"}, textColor: "#93a3c3", fontFamily: "JetBrains Mono, Inter, monospace", fontSize: 11},
+    grid: {vertLines: {color: "rgba(255,255,255,.04)"}, horzLines: {color: "rgba(255,255,255,.04)"}}, rightPriceScale: {borderColor: "rgba(255,255,255,.1)"},
+    timeScale: {borderColor: "rgba(255,255,255,.1)", tickMarkFormatter: (t, type) => {   // t may be a "YYYY-MM-DD" string, a unix timestamp or a {year,month,day} object depending on the library path
+      let y, m, d;
+      if (typeof t === "string") [y, m, d] = t.slice(0, 10).split("-");
+      else if (typeof t === "number") { const x = new Date(t * 1000); y = x.getUTCFullYear(); m = x.getUTCMonth() + 1; d = x.getUTCDate(); }
+      else if (t) { y = t.year; m = t.month; d = t.day; }
+      if (y == null) return "";
+      m = String(m).padStart(2, "0"); d = String(d).padStart(2, "0");
+      return type === 0 ? `${y}` : type === 1 ? `${m}-${y}` : `${d}-${m}`;
+    }},
+    localization: {dateFormat: "dd-MM-yyyy"}, crosshair: {mode: 0}});
+}
 const io = new IntersectionObserver(es => es.forEach(e => { if (e.isIntersecting) { io.unobserve(e.target); loadChart(e.target); } }), {rootMargin: "600px"});
 async function loadChart(el) {
   const s = state.signals.find(x => String(x.id) === el.dataset.id); if (!s) return;
@@ -246,18 +260,7 @@ async function loadChart(el) {
   try {
     const d = await api(`/api/chart/${s.ticker}?sid=${encodeURIComponent(s.sid || (s.signal_date + "|" + s.ticker))}`);
     host.innerHTML = "";
-    const ch = LightweightCharts.createChart(host, {width: host.clientWidth, height: host.clientHeight, layout: {background: {type: "solid", color: "rgba(0,0,0,0)"}, textColor: "#93a3c3", fontFamily: "JetBrains Mono, Inter, monospace", fontSize: 11},
-      grid: {vertLines: {color: "rgba(255,255,255,.04)"}, horzLines: {color: "rgba(255,255,255,.04)"}}, rightPriceScale: {borderColor: "rgba(255,255,255,.1)"},
-      timeScale: {borderColor: "rgba(255,255,255,.1)", tickMarkFormatter: (t, type) => {   // t may be a "YYYY-MM-DD" string, a unix timestamp or a {year,month,day} object depending on the library path
-        let y, m, d;
-        if (typeof t === "string") [y, m, d] = t.slice(0, 10).split("-");
-        else if (typeof t === "number") { const x = new Date(t * 1000); y = x.getUTCFullYear(); m = x.getUTCMonth() + 1; d = x.getUTCDate(); }
-        else if (t) { y = t.year; m = t.month; d = t.day; }
-        if (y == null) return "";
-        m = String(m).padStart(2, "0"); d = String(d).padStart(2, "0");
-        return type === 0 ? `${y}` : type === 1 ? `${m}-${y}` : `${d}-${m}`;
-      }},
-      localization: {dateFormat: "dd-MM-yyyy"}, crosshair: {mode: 0}});
+    const ch = baseChart(host);
     const cs = ch.addCandlestickSeries({upColor: "#26a69a", downColor: "#ef5350", wickUpColor: "#26a69a", wickDownColor: "#ef5350", borderVisible: false});
     cs.setData(d.candles);
     const prior = d.signals.filter(t => t < s.signal_date).slice(-3).map(t => ({time: t, position: "belowBar", color: "#5c6f9a", shape: "arrowUp", text: ""}));
@@ -306,6 +309,7 @@ const pnlCell = (v, d = 0) => v == null ? "" : `<span style="color:var(--${v >= 
 const holdDays = r => r.exit_date && r.entry_date ? Math.round((new Date(r.exit_date) - new Date(r.entry_date)) / 864e5) : "";
 const sortBy = (rows, ...keys) => [...(rows || [])].sort((a, b) => { for (const key of keys) { const d = key[0] === "-" ? -1 : 1, k = d < 0 ? key.slice(1) : key, x = a[k] ?? "", y = b[k] ?? ""; if (x < y) return -d; if (x > y) return d; } return 0; });   // ascending by default; "-key" = descending
 async function loadTab(tab) {
+  if (tab === "exec") { await loadExec(); return; }
   if (tab === "closed") {
     const c = sortBy(await api("/api/positions?status=closed"), "-exit_date", "-entry_date", "ticker");
     T($("#tblClosed"), [["Ticker", tkCell], ["Symbol", r => r.broker_symbol], ["Ticket", r => r.ticket], ["Entry date", r => fmtDate(r.entry_date)], ["Exit date", r => fmtDate(r.exit_date)], ["Days held", holdDays], ["Entry", r => fmt(r.entry_price, 4)], ["Exit", r => fmt(r.exit_price, 4)], ["Shares", r => fmt(r.shares, 0)], ["Exit reason", r => (r.exit_reason || "").replace(/_/g, " ")], ["P&L $", r => pnlCell(r.pnl_total)], ["R", r => r.pnl_r == null ? "" : `<span style="color:var(--${r.pnl_r >= 0 ? "ok" : "bad"})">${r.pnl_r >= 0 ? "+" : ""}${r.pnl_r.toFixed(2)}R</span>`]], c, tierCls);
@@ -314,9 +318,91 @@ async function loadTab(tab) {
   if (tab === "history") { const h = sortBy(await api("/api/history"), "-signal_date", "-entry_date", "ticker"); T($("#tblHist"), [["Signal date", r => fmtDate(r.signal_date)], ["Target session", r => fmtDate(r.entry_date)], ["Tier", r => `<span class="badge b-${r.tier}">${r.tier}</span>${r.watch ? ' <span class="badge b-star">&#9733;</span>' : ""}`], ["Ticker", r => `<b>${r.ticker}</b>`], ["Setup", r => r.setup], ["vs EMA200", r => pct(r.dist200)], ["Stage-2 age", r => r.days_since_s2], ["Decision", r => r.decision], ["Previous decision", r => r.last_decision && r.last_decision !== "none" ? `${r.last_decision} (${dmy(r.last_decision_date)})` : ""], ["Risk %", r => r.risk_pct ? (r.risk_pct * 100).toFixed(2) : ""], ["By", r => r.decided_by || ""], ["Execution", r => r.exec_status]], h, tierCls); }
   if (tab === "audit") { const a = sortBy(await api("/api/audit"), "-ts", "action", "-id"); T($("#tblAudit"), [["Time (UTC)", r => fmtTs(r.ts)], ["Actor", r => r.actor], ["Action", r => r.action], ["Detail", r => (r.detail || "").slice(0, 160)]], a); }
 }
+// ---------- Executed tab: every entry the executor filled or failed, per session, with entry / stop / exit drawn on the chart ----------
+const exec = {sig: "", charts: [], rows: new Map(), io: new IntersectionObserver(es => es.forEach(e => { if (e.isIntersecting) { exec.io.unobserve(e.target); loadTradeChart(e.target); } }), {rootMargin: "500px"})};
+const reasonTxt = d => { const s = String(d || "unknown").replace(/\(.*\)/, "").replace(/_/g, " ").trim(); return s.charAt(0).toUpperCase() + s.slice(1); };
+function tradeCardHtml(r) {
+  const ok = r.exec_status === "executed", closed = ok && r.pos_status === "closed", tier = tierOf(r), T = state.status.tiers[r.tier] || {};
+  const stopPct = ok && r.entry_price ? r.stop_price / r.entry_price - 1 : (r.sig_close ? r.ref_stop / r.sig_close - 1 : null);
+  const m = (l, v, f) => `<div><small>${l}</small><b${f ? ` data-f="${f}"` : ""}>${v}</b></div>`;
+  const cells = ok
+    ? m("Entry fill", `$${fmt(r.entry_price, 4)}`) + m("Stop", `$${fmt(r.stop_price, 4)} <span class="muted">(${pct(stopPct)})</span>`) + m("Shares", fmt(r.shares, 0)) +
+      m("Risk at stop", usd(r.shares * r.stop_distance)) + (closed ? m("Exit", `$${fmt(r.exit_price, 4)} <span class="muted">${reasonTxt(r.exit_reason)}</span>`) : m("Last close", "...", "last")) +
+      (closed ? m("Result", `${pnlCell(r.pnl_total)} <span class="muted">${r.pnl_r == null ? "" : (r.pnl_r >= 0 ? "+" : "") + r.pnl_r.toFixed(2) + "R"}</span>`) : m("Open P&amp;L", "...", "pnl"))
+    : m("Why it failed", reasonTxt(r.exec_detail)) + m("Signal close", `$${fmt(r.sig_close)}`) + m("Stop (ref)", `$${fmt(r.ref_stop)} <span class="muted">(${pct(stopPct)})</span>`) +
+      m("Planned size", fmt(r.est_shares, 0) + " sh") + m("Planned risk", usd(r.est_risk)) + m("Session", fmtDate(r.entry_date));
+  return `<div class="chead">${tier ? `<span class="badge b-${tier}">${tier}</span>` : ""}<span class="tk">${r.ticker}</span>
+    <span class="badge ${ok ? "b-ok" : "b-bad"}">${ok ? "EXECUTED" : "FAILED"}</span>${ok ? `<span class="badge b-s">${closed ? "CLOSED " + dmy(r.exit_date) : "OPEN"}</span>` : ""}
+    <span class="badge b-age">Signal ${dmy(r.signal_date)}</span>
+    <span class="right"><a href="https://www.tradingview.com/chart/?symbol=${r.ticker}" target="_blank" rel="noopener">OPEN IN TRADINGVIEW &#8599;</a></span></div>
+    <div class="hint-bt">${ok ? `Entered ${dmy(r.pos_entry_date || r.entry_date)} at the US open. Green shading = price above entry (profit), red shading = price below entry (towards the stop).` : `Order was not placed. The line shows the signal close and the planned stop.`}</div>
+    <div class="metrics">${cells}</div><div class="chart" data-f="chart"><div class="ph">Loading chart…</div></div>`;
+}
+async function loadTradeChart(el) {
+  const r = exec.rows.get(el.dataset.id), host = el.querySelector('[data-f="chart"]');
+  try {
+    const d = await api(`/api/chart/${r.ticker}?sid=${encodeURIComponent(r.sid || r.id)}`);
+    host.innerHTML = ""; const ch = baseChart(host); exec.charts.push(ch);
+    const cs = ch.addCandlestickSeries({upColor: "#26a69a", downColor: "#ef5350", wickUpColor: "#26a69a", wickDownColor: "#ef5350", borderVisible: false});
+    cs.setData(d.candles);
+    const ok = r.exec_status === "executed", closed = ok && r.pos_status === "closed", times = new Set(d.candles.map(c => c.time));
+    const mk = [{time: r.signal_date, position: "belowBar", color: "#7aa2ff", shape: "arrowUp", text: "SIGNAL"}];
+    if (ok) {
+      const ed = r.pos_entry_date || r.entry_date, after = d.candles.filter(c => c.time >= ed);
+      cs.createPriceLine({price: r.entry_price, color: "#5b8cff", lineWidth: 2, lineStyle: 0, title: `Entry ${fmt(r.entry_price, 2)}`});
+      cs.createPriceLine({price: r.stop_price, color: "#ff5d73", lineWidth: 2, lineStyle: 2, title: `Stop ${fmt(r.stop_price, 2)}`});
+      if (after.length) {                                                          // shade each day's close against the entry price: green = profit side, red = stop side
+        const bl = ch.addBaselineSeries({baseValue: {type: "price", price: r.entry_price}, lineWidth: 2, priceLineVisible: false, lastValueVisible: false,
+          topLineColor: "#22d39a", topFillColor1: "rgba(34,211,154,.40)", topFillColor2: "rgba(34,211,154,.06)",
+          bottomLineColor: "#ff5d73", bottomFillColor1: "rgba(255,93,115,.06)", bottomFillColor2: "rgba(255,93,115,.40)"});
+        bl.setData(after.map(c => ({time: c.time, value: c.close})));
+      }
+      mk.push({time: ed, position: "belowBar", color: "#5b8cff", shape: "arrowUp", text: "ENTRY"});
+      if (closed && r.exit_date) {
+        cs.createPriceLine({price: r.exit_price, color: "#ffb547", lineWidth: 1, lineStyle: 3, title: `Exit ${fmt(r.exit_price, 2)}`});
+        mk.push({time: r.exit_date, position: "aboveBar", color: "#ffb547", shape: "arrowDown", text: "EXIT"});
+      }
+      const last = d.candles[d.candles.length - 1], lc = el.querySelector('[data-f="last"]'), pl = el.querySelector('[data-f="pnl"]');
+      if (last && lc && pl) {
+        const chg = last.close / r.entry_price - 1, usdPl = (last.close - r.entry_price) * r.shares, rr = r.stop_distance ? (last.close - r.entry_price) / r.stop_distance : null, col = `var(--${chg >= 0 ? "ok" : "bad"})`;
+        lc.innerHTML = `$${fmt(last.close, 4)} <span style="color:${col}">${chg >= 0 ? "+" : ""}${(chg * 100).toFixed(1)}%</span> <span class="muted">${fmtDate(last.time)}</span>`;
+        pl.innerHTML = `${pnlCell(usdPl)} <span class="muted">${rr == null ? "" : (rr >= 0 ? "+" : "") + rr.toFixed(2) + "R"}</span>`;
+        if (!after.length) lc.innerHTML += ` <span class="muted">(entry candle appears after tonight's data refresh)</span>`;
+      }
+    } else {
+      cs.createPriceLine({price: r.sig_close, color: "#cfd8ee", lineWidth: 1, lineStyle: 3, title: "Signal close"});
+      cs.createPriceLine({price: r.ref_stop, color: "#ff5d73", lineWidth: 1, lineStyle: 2, title: "Stop (ref)"});
+    }
+    cs.setMarkers(mk.filter(x => times.has(x.time)).sort((a, b) => (a.time < b.time ? -1 : a.time > b.time ? 1 : 0)));
+    const vol = ch.addHistogramSeries({priceFormat: {type: "volume"}, priceScaleId: "vol"});
+    ch.priceScale("vol").applyOptions({scaleMargins: {top: 0.82, bottom: 0}}); vol.setData(d.volume);
+    const n = d.candles.length, i0 = d.candles.findIndex(c => c.time >= r.signal_date);
+    ch.timeScale().setVisibleLogicalRange({from: Math.max(0, (i0 < 0 ? n - 60 : i0) - 20), to: n + 6});
+    new ResizeObserver(() => ch.applyOptions({width: host.clientWidth})).observe(host);
+  } catch (e) { host.innerHTML = `<div class="ph" style="animation:none">Chart unavailable: ${e.message}</div>`; }
+}
+async function loadExec() {
+  const rows = await api("/api/trades"), key = rows.map(r => [r.sid || r.id, r.exec_status, r.pos_status, r.exit_date, r.entry_price].join("|")).join(";");
+  if (key === exec.sig) return;                                                    // nothing changed: keep the charts (this tab refreshes every 15 s)
+  exec.sig = key; exec.charts.forEach(c => { try { c.remove(); } catch (e) {} }); exec.charts = []; exec.rows.clear();
+  const wrap = $("#execWrap"); wrap.innerHTML = "";
+  rows.forEach(r => r._ord = r.exec_status === "executed" ? 0 : 1);
+  const sorted = sortBy(rows, "-entry_date", "_ord", "ticker");                    // newest session first, executed before failed, A-Z within each
+  $("#execEmpty").classList.toggle("hidden", sorted.length > 0);
+  let last = null;
+  sorted.forEach(r => {
+    if (r.entry_date !== last) {
+      last = r.entry_date; const day = sorted.filter(x => x.entry_date === last), ok = day.filter(x => x._ord === 0).length;
+      const g = document.createElement("div"); g.className = "grp"; g.innerHTML = `<b>Session of ${dmy(last)}</b><span>${ok} executed &middot; ${day.length - ok} failed</span>`; wrap.appendChild(g);
+    }
+    const el = document.createElement("div"); el.dataset.id = String(r.sid || r.id); exec.rows.set(el.dataset.id, r);
+    el.className = "card t" + (r.tier || "C") + (r.exec_status === "failed" ? " skip" : " trade"); el.innerHTML = tradeCardHtml(r);
+    wrap.appendChild(el); exec.io.observe(el);
+  });
+}
 document.querySelectorAll(".tab").forEach(b => b.onclick = () => {
   document.querySelectorAll(".tab").forEach(x => x.classList.toggle("active", x === b)); state.tab = b.dataset.tab;
-  ["signals", "positions", "closed", "history", "audit"].forEach(t => $("#view-" + t).classList.toggle("hidden", t === "signals" ? !sv() : t !== state.tab));
+  ["signals", "exec", "positions", "closed", "history", "audit"].forEach(t => $("#view-" + t).classList.toggle("hidden", t === "signals" ? !sv() : t !== state.tab));
   if (sv() && state.status) { state.limit = 40; state.filter = "tradable"; renderHero(); renderChips(); renderList(true); } else loadTab(state.tab);
 });
 

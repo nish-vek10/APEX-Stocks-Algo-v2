@@ -18,6 +18,7 @@
   <nav class="seg" id="nav">
     <button class="tab active" data-tab="signals">Signals <i class="tb" id="tbSig"></i></button>
     <button class="tab" data-tab="watch">Watchlist <i class="tb" id="tbWatch"></i></button>
+    <button class="tab" data-tab="exec">Executed</button>
     <button class="tab" data-tab="positions">Positions</button>
     <button class="tab" data-tab="closed">Closed</button>
     <button class="tab" data-tab="history">History</button>
@@ -75,6 +76,10 @@
     <div id="tierLegend" class="tier-legend"></div>
     <div id="cards" class="cards cols2"></div>
     <div id="empty" class="empty hidden">No signals in this view.</div>
+  </div>
+  <div id="view-exec" class="hidden">
+    <div id="execWrap" class="cards cols2"></div>
+    <div id="execEmpty" class="empty hidden">No executed or failed entries yet. After each open they appear here, newest session first.</div>
   </div>
   <div id="view-positions" class="hidden"><div class="panel"><table id="tblPos"></table></div></div>
   <div id="view-closed" class="hidden"><div class="panel"><table id="tblClosed"></table></div></div>

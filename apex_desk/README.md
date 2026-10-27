@@ -28,7 +28,7 @@ All three tiers are **tradable** after your manual review; tier decides the risk
 Expect roughly 13-16 tradable cards on an average day (up to 50+ on a busy one), sorted tier A first, deepest below EMA200 first; filter by tier or setup.
 Warming-setup stats are trade-level (overlapping events not removed) and the liquidity floor is an untested sanity filter: treat W as a manual-conviction tier.
 - **Stop:** entry - max(**3.5 x ATR14**, 0.5% of entry), native broker stop. Best in the 2x-3.5x band (+50.8% CAGR, -63% max DD, 38% win rate at A/3 per ticker, vs +37.9% / -71% at 3x).
-- **Risk:** 1% of equity x tier multiplier, position value <= 20% of equity, max **75** positions, max **3** concurrent trades per ticker, gross <= 5x equity, price >= $2.
+- **Risk:** 1% of equity x tier multiplier, position value <= 20% of equity, max **75** positions, max **3** concurrent trades per ticker, gross <= 5x equity. **No minimum price** (`strategy.min_price: 0`; set e.g. 2.0 to re-enable a penny-stock floor). If the broker's volume cap is below the target size (e.g. 2000 needed, max 1000) the order is sent at the cap and risks less than planned.
 - **Exits:** Stage 9 (close < EMA10) at the next open, broker stop, 365-day time stop, same as the old system.
 - Evidence: `research/dislocation_study/FINDINGS.md` and the Excel reports (`Tier_Ladder_Study.xlsx` for the tier table).
 
@@ -50,6 +50,8 @@ Fills during retries use the live ask at that moment for size, stop and risk. Th
 **MT5 order comment (tier tag)** - entry: `DESK_<tier>-<signal id>`, e.g. `DESK_A-4567`; exit: `DESK_EXIT_<tier>-<signal id>`. The number is the desk's signal id (traceable to the History tab and `state/desk.db`, never reused), max 31 chars (MT5 limit). Visible in the MT5 history export Comment column. Trades placed before this change carry `DESK<id>`.
 
 **Broker trade mode (close-only)** - the broker can set a symbol to Close only / Disabled / Short only; new entries then fail with retcode `10044 (Only position closing is allowed)` (seen on `CCB.NAS-24`, 26-10-2026). The desk reads each tradable setup's MT5 symbol trade mode after every scan, in every 30-min snapshot and again right before each order (`Executor.check_broker_modes`, stored in `signals.broker_mode`, synced to Supabase). Such cards show a red **BROKER: CLOSE ONLY** tag, the Trade button is disabled, `set_decision` / `force-queue` refuse, and the executor fails them fast as `broker_close_only` with no retry. Info-only and skipped setups are unaffected.
+
+**Symbol variants (fallback)** - for every ticker the executor considers all broker symbols that exist (`<T>.NAS-24`, `.NYSE-24`, `.NAS`, `.NYSE`; the mapped one first). Per attempt it uses the first variant that is **not close-only/disabled and has a live quote** (logged `using X (preferred Y had no quote or is not tradable)`; the filled variant is stored in `positions.broker_symbol` and used for the exit). `no_live_quote` is returned only if no variant quotes, `broker_<mode>` only if every variant is blocked, and the dashboard BROKER tag appears only when every variant is blocked.
 
 **Symbol resolution** - the symbol map (`config/mt5_symbol_map.yaml`) is static, so new listings (e.g. `BETR`) are missing from it. `MT5Broker.symbol_for` falls back to probing the broker for `<TICKER>.NAS-24`, `.NYSE-24`, `.NAS`, `.NYSE` (first hit wins, cached for the session, logged as `Symbol auto-resolved`). Only a ticker that exists under none of these shows `BROKER: NO SYMBOL`.
 
@@ -105,6 +107,12 @@ Lightweight Charts from the same data the algo used, so what you see is exactly 
 - Colours: green (plenty of time) > amber (under 2 h) > red pulse (under 15 min) > red lock; market green while open, orange while closed; batch cyan. Slow candle strips animate behind each card.
 - Market hours use the regular 09:30-16:00 ET session (early-close days are not modelled).
 - All dates display as DD-MM-YYYY; titles and tab headers are upper case; fonts Space Grotesk, Inter, JetBrains Mono (Google Fonts, needs internet).
+
+## Executed tab (v5)
+- Tab after Watchlist. Every setup the executor **filled or failed**, grouped by session: newest session first, executed before failed, A-Z within each. Cards leave Signals / Watchlist after execution but stay here (last 90 days; charts synced for 45 days).
+- Executed card: entry fill, stop, shares, risk at stop, last close and open P&L (R multiple), plus the chart with the **Entry** line (blue), **Stop** line (red dashed), signal / entry / exit markers, and a shaded area of every daily close against the entry price (green = profit side, red = stop side). Closed trades show the exit line / marker, exit reason and realised P&L; their chart freezes after the exit day. Failed card: reason (e.g. Broker close only), signal close and planned stop.
+- Charts refresh with every daily scan (sync uploads them again when the board date changes). Today's entry candle appears after tonight's data refresh.
+- Data: local `/api/trades`; cloud: `desk_signals` (executed / failed) joined to `desk_positions.sid` (run `docs/supabase_migration_v4.sql`).
 
 ## Positions, Closed and History tabs (v4)
 - **Positions** = open trades. **Closed** = finished trades (exit date, days held, exit price, reason, P&L $, R). A position moves from Positions to Closed when the Stage-9 / time-stop exit fills or MT5 closes it (stop hit); the executor's `reconcile` detects it at the next run (09:31 ET). Positions are never deleted.
