@@ -54,6 +54,7 @@ class MT5Broker(BaseBroker):
         self.conn = MT5Connector(settings.mt5_creds())
         self.symcfg = load_symbol_map_cfg()
         self.symbols = self.symcfg.get("symbols", {})
+        self._resolved: Dict[str, str] = {}
         self.magic = int(settings.cfg()["execution"]["magic_number"])
 
     def connect(self) -> None:
@@ -68,8 +69,25 @@ class MT5Broker(BaseBroker):
     def balance(self) -> float:
         return self.conn.get_balance()
 
+    SUFFIXES = (".NAS-24", ".NYSE-24", ".NAS", ".NYSE")          # IC Markets naming: 24h CFDs first, then regular-hours
+
     def symbol_for(self, ticker: str) -> str:
-        return self.symbols.get(ticker, "")
+        """Symbol map first; tickers not in the (static) map, e.g. new listings like BETR, are looked up on the broker by suffix."""
+        s = self.symbols.get(ticker)
+        if s:
+            return s
+        if ticker in self._resolved:
+            return self._resolved[ticker]
+        try:
+            import MetaTrader5 as mt5
+            for suf in self.SUFFIXES:
+                if mt5.symbol_info(ticker + suf) is not None:
+                    self._resolved[ticker] = ticker + suf              # only hits are cached (a miss may just be a dropped connection)
+                    log.info("Symbol auto-resolved: %s -> %s (not in the symbol map)", ticker, ticker + suf)
+                    return ticker + suf
+        except Exception as exc:                           # noqa: BLE001
+            log.debug("symbol lookup failed for %s: %s", ticker, exc)
+        return ""
 
     def tick(self, symbol: str):
         from prod.execution.order_builder import get_live_tick

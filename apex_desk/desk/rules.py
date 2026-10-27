@@ -95,6 +95,10 @@ def batch_preview(entry_date: str) -> Dict[str, Any]:
     slots = int(rk["max_positions"]) - ex["open_positions"]
     risk = sum(s["est_risk"] or 0 for s in sigs)
     notional = sum(s["est_notional"] or 0 for s in sigs)
+    # everything confirmed for this open (waiting for "Trade all confirmed" OR already queued): drives the dashboard KPI boxes
+    conf = db.q(f"SELECT est_risk, est_notional FROM signals WHERE entry_date=? AND {tradable_sql()} AND decision='trade' "
+                "AND exec_status IN ('none','queued')", (entry_date,))
+    c_risk, c_notional = sum(s["est_risk"] or 0 for s in conf), sum(s["est_notional"] or 0 for s in conf)
     warnings: List[str] = []
     if len(sigs) > slots:
         warnings.append(f"{len(sigs)} confirmed > {slots} free slots: the deepest-below-EMA200 signals fill first, the rest are skipped.")
@@ -109,7 +113,9 @@ def batch_preview(entry_date: str) -> Dict[str, Any]:
             warnings.append(f"{t}: would exceed {rk['max_per_ticker']} concurrent trades per ticker.")
     return {"count": len(sigs), "est_risk": risk, "est_risk_pct": risk / max(eq, 1) * 100, "est_notional": notional,
             "est_gross_x": notional / max(eq, 1), "free_slots": slots, "equity": eq, "warnings": warnings,
-            "tickers": [s["ticker"] for s in sigs]}
+            "tickers": [s["ticker"] for s in sigs],
+            "confirmed_count": len(conf), "confirmed_risk": c_risk, "confirmed_risk_pct": c_risk / max(eq, 1) * 100,
+            "confirmed_notional": c_notional, "confirmed_gross_x": c_notional / max(eq, 1)}
 
 
 def lock_batch(entry_date: str, by: str) -> Dict[str, Any]:

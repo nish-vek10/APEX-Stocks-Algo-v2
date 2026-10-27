@@ -45,17 +45,22 @@ function lock(r) {
 }
 async function signals(sess) {
   const rows = ok(await sb.from("desk_signals").select("*").eq("entry_date", sess).order("tier").order("dist200").limit(5000));
-  rows.forEach(r => { r.id = r.sid; r.open_same_ticker = 0; r.locked_reason = lock(r); });
+  const open = ok(await sb.from("desk_positions").select("ticker").eq("status", "open")), per = {};
+  open.forEach(p => per[p.ticker] = (per[p.ticker] || 0) + 1);
+  rows.forEach(r => { r.id = r.sid; r.open_same_ticker = per[r.ticker] || 0; r.locked_reason = lock(r); });
   cache.signals = rows; cache.sessDate = sess; return rows;
 }
 function preview() {
   const st = cache.status || {}, ex = st.exposure || {}, eq = st.equity || 1;
   const sg = cache.signals.filter(s => (TRAD.includes(s.tier) || s.watch) && s.decision === "trade" && s.exec_status === "none");
   const risk = sg.reduce((a, s) => a + (s.est_risk || 0), 0), nt = sg.reduce((a, s) => a + (s.est_notional || 0), 0);
+  const cf = cache.signals.filter(s => (TRAD.includes(s.tier) || s.watch) && s.decision === "trade" && ["none", "queued"].includes(s.exec_status));   // confirmed: pending + queued
+  const cRisk = cf.reduce((a, s) => a + (s.est_risk || 0), 0), cNot = cf.reduce((a, s) => a + (s.est_notional || 0), 0);
   const slots = (st.max_positions || 75) - (ex.open_positions || 0), w = [];
   if (sg.length > slots) w.push(`${sg.length} confirmed > ${slots} free slots: the deepest-below-EMA200 signals fill first, the rest are skipped.`);
   if (st.max_gross_x && ((ex.notional || 0) + nt) / eq > st.max_gross_x) w.push(`Projected gross exposure above the ${st.max_gross_x}x cap: the executor stops adding at the cap.`);
-  return {count: sg.length, est_risk: risk, est_risk_pct: risk / eq * 100, est_notional: nt, est_gross_x: nt / eq, free_slots: slots, equity: eq, warnings: w, tickers: sg.map(s => s.ticker)};
+  return {count: sg.length, est_risk: risk, est_risk_pct: risk / eq * 100, est_notional: nt, est_gross_x: nt / eq, free_slots: slots, equity: eq, warnings: w, tickers: sg.map(s => s.ticker),
+    confirmed_count: cf.length, confirmed_risk: cRisk, confirmed_risk_pct: cRisk / eq * 100, confirmed_notional: cNot, confirmed_gross_x: cNot / eq};
 }
 function counts(rows) {
   const a = rows.filter(r => TRAD.includes(r.tier) || r.watch), n = f => a.filter(f).length, by = {};

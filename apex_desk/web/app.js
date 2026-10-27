@@ -100,10 +100,11 @@ function renderHero() {
 }
 function renderKpis() {
   const s = state.status, c = s.counts, ex = s.exposure, b = s.batch, bt = c.by_tier;
-  const gx = ex.gross_x + b.est_gross_x, cap = s.max_gross_x || 5;
+  const cn = b.confirmed_count ?? c.trade, cr = b.confirmed_risk ?? b.est_risk, crp = b.confirmed_risk_pct ?? b.est_risk_pct;   // confirmed = Trade decisions waiting + already queued
+  const gx = ex.gross_x + (b.confirmed_gross_x ?? b.est_gross_x), cap = s.max_gross_x || 5;
   const k = [
     ["Tradable setups", c.tradable, `A ${bt.A || 0}  ·  B ${bt.B || 0}  ·  W ${bt.W || 0}  ·  Info only ${bt.C || 0}`, "", null],
-    ["Confirmed trades", c.trade, `${usd(b.est_risk)} estimated risk (${fmt(b.est_risk_pct, 2)}% of equity)`, b.est_risk_pct > 20 ? "warn" : "", Math.min(100, b.est_risk_pct / 20 * 100)],
+    ["Confirmed trades", cn, `${usd(cr)} estimated risk (${fmt(crp, 2)}% of equity)`, crp > 20 ? "warn" : "", Math.min(100, crp / 20 * 100)],
     ["Projected gross", fmt(gx, 2) + "x", `Now ${fmt(ex.gross_x, 2)}x  ·  cap ${cap}x`, gx > cap ? "bad" : gx > cap * .8 ? "warn" : "", Math.min(100, gx / cap * 100)],
     ["Open positions", `${ex.open_positions}/${s.max_positions}`, `${b.free_slots} slots free  ·  max ${s.max_per_ticker} per ticker`, "", ex.open_positions / s.max_positions * 100],
     ["Open stop risk", fmt(ex.open_risk_pct, 1) + "%", `${usd(ex.open_risk)} lost if every stop is hit`, ex.open_risk_pct > 30 ? "warn" : "", Math.min(100, ex.open_risk_pct / 40 * 100)],
@@ -163,7 +164,7 @@ function prevTag(s) {
   const l = s.last_decision, d = dmy(s.last_decision_date);
   if (l === "skip") return `<span class="badge b-warn">Skipped ${d}</span>`;
   if (l === "trade") return `<span class="badge b-warn">Marked trade ${d}, not queued</span>`;
-  return `<span class="badge b-warn">Not reviewed</span>`;
+  return s.decision === "none" && s.exec_status === "none" ? `<span class="badge b-warn">Not reviewed</span>` : "";     // reviewed or queued this session: not "not reviewed"
 }
 const effRisk = s => s.risk_pct != null ? s.risk_pct : (state.status.risk_pct || 0.01) * (s.risk_mult || 1);
 const defRisk = s => s.risk_pct_default != null ? s.risk_pct_default : (state.status.risk_pct || 0.01) * (s.risk_mult || 1);

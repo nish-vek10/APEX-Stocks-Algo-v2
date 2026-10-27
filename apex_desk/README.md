@@ -51,6 +51,10 @@ Fills during retries use the live ask at that moment for size, stop and risk. Th
 
 **Broker trade mode (close-only)** - the broker can set a symbol to Close only / Disabled / Short only; new entries then fail with retcode `10044 (Only position closing is allowed)` (seen on `CCB.NAS-24`, 26-10-2026). The desk reads each tradable setup's MT5 symbol trade mode after every scan, in every 30-min snapshot and again right before each order (`Executor.check_broker_modes`, stored in `signals.broker_mode`, synced to Supabase). Such cards show a red **BROKER: CLOSE ONLY** tag, the Trade button is disabled, `set_decision` / `force-queue` refuse, and the executor fails them fast as `broker_close_only` with no retry. Info-only and skipped setups are unaffected.
 
+**Symbol resolution** - the symbol map (`config/mt5_symbol_map.yaml`) is static, so new listings (e.g. `BETR`) are missing from it. `MT5Broker.symbol_for` falls back to probing the broker for `<TICKER>.NAS-24`, `.NYSE-24`, `.NAS`, `.NYSE` (first hit wins, cached for the session, logged as `Symbol auto-resolved`). Only a ticker that exists under none of these shows `BROKER: NO SYMBOL`.
+
+**KPI boxes** - *Confirmed trades* and *Projected gross* count every setup marked Trade that is still pending **or already queued** for this open (risk = sum of each card's risk, notional added to the current gross); executed/failed ones drop out. *Open in same ticker* on each card counts the open positions of that ticker (also in the cloud view).
+
 **MT5 lock** - MT5's Python API is process-global, so `MT5_LOCK` (in `executor.py`) serialises the executor and the snapshot job.
 While the executor retries (up to 30 min) the half-hourly snapshot is skipped ("Snapshot skipped" in the log); equity on the dashboard may lag. `null_result` triggers an automatic MT5 reconnect.
 
