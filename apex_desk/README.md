@@ -122,6 +122,15 @@ Lightweight Charts from the same data the algo used, so what you see is exactly 
 - Every row in Positions, Closed and History starts with a tier tag (A / B / W / C) in the tier colour (A green, B amber, W blue, C grey) and a matching coloured strip at the row start.
 - Positions store the tier at entry (`positions.tier`, Supabase `desk_positions.tier`; run `docs/supabase_migration_v3.sql` once in the Supabase SQL editor before pulling on the Work PC).
 
+## Daily PnL history (v6)
+- **KPI card 7 "Daily PnL"**: latest close-of-business combined P&L of every position open at that close, with the date, positions opened that day and their combined risk. Click it for a table of **every close-of-business day**: date, combined PnL, change vs prior day, open positions, opened that day, risk of those (shares x stop distance), total open risk. The KPI row is 7 columns wide (4 on narrow screens).
+- **Positions tab**: click a row (chevron) to expand it into **decks**, one per day, as many per row as the width allows, newest first: date, the ticker's close that day, running P&L at that close ((close - fill) x shares). Each entry has its own row and decks, so a ticker entered twice shows two sets. The table also has **Last close** and **P&L $** columns. Expanded rows stay open across the 15 s refresh.
+- **Snapshot**: `desk/pnl.py` builds `pnl_pos_daily` (position, day, close, pnl, status) and `pnl_daily` (portfolio roll-up) from positions plus the EOD price cache. Once per day at 17:10 ET (Mon-Fri, after the 16:50 cache refresh), again after each successful scan, and at scheduler start. The first run **backfills every past day** from each entry date. It is idempotent: past rows stay frozen, only the latest bar and exit days are rewritten. 24/5 tickers get the same single end-of-day snapshot.
+- Exit day row (status `EXIT`) holds the realised P&L (`pnl_total`) and the exit price; nothing is recorded after it.
+- Manual run: `python -m desk pnl`. Test: `python tests\pnl_test.py`. API: `/api/pnl/daily`, `/api/pnl/positions`.
+- Cloud: tables `desk_pnl_daily`, `desk_pnl_pos` (run `docs/supabase_migration_v5.sql` **before** the Work PC pulls). Sync pushes them whenever a new snapshot exists.
+- Config: `timing.pnl_time_et` in `conf/desk.yaml` (default 17:10).
+
 ## Cloud architecture (live)
 ```
 Work PC (MT5 + data cache)                    Supabase (project apexstocks-desk)             Netlify (apexstocks-desk.netlify.app)

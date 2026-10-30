@@ -197,6 +197,20 @@ def trades(days: int = Query(90, le=400)) -> Any:
                 "WHERE s.exec_status IN ('executed','failed') AND s.entry_date>=? ORDER BY s.entry_date DESC, s.ticker", (since,))
 
 
+@app.get("/api/pnl/daily")
+def pnl_daily() -> Any:
+    """Portfolio roll-up per close-of-business day (newest first)."""
+    from desk import pnl
+    return pnl.daily()
+
+
+@app.get("/api/pnl/positions")
+def pnl_positions() -> Any:
+    """Per-position, per-day close and running P&L."""
+    from desk import pnl
+    return pnl.per_position()
+
+
 @app.get("/api/executions")
 def executions(limit: int = Query(100, le=500)) -> Any:
     return db.q("SELECT * FROM executions ORDER BY id DESC LIMIT ?", (limit,))

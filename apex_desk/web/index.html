@@ -102,6 +102,11 @@
   <p class="muted">Orders go out at the open at the live ask price, using tier-scaled risk (or your manual override), the ATR stop and the broker's lot limits. You can unlock the batch until the cut-off.</p>
   <div class="modal-actions"><button class="btn ghost" id="mCancel">Cancel</button><button class="btn primary" id="mOk">Queue for the open</button></div>
 </div></div>
+<div class="modal hidden" id="pnlModal"><div class="modal-card wide">
+  <h3>DAILY PnL <small class="muted">· every close of business, all open positions combined</small></h3>
+  <div id="pnlBody" class="pnl-scroll"></div>
+  <div class="modal-actions"><button class="btn ghost" id="pnlClose">Close</button></div>
+</div></div>
 <div id="toast" class="toast hidden"></div>
 <script src="/static/config.js"></script>
 <script>if (window.DESK_CONFIG && window.DESK_CONFIG.SUPABASE_URL) { document.write('<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"><\/script><script src="/static/cloud.js"><\/script>'); }</script>

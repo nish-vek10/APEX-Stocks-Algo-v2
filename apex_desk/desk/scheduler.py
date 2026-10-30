@@ -50,6 +50,7 @@ def job_scan() -> None:
             log.error("Scan gave up after %d attempts: cache never became fresh", n)
             break
         time.sleep(gap)
+    job_pnl()                                              # the cache is fresh now: snapshot the day's close
     job_broker_modes()
     job_sync()
 
@@ -76,6 +77,16 @@ def job_cache() -> None:
     from desk import cachebuild
     b = cachebuild.ensure_cache("daily after the close", force=True)
     log.info("Daily cache job: %s", b)
+
+
+def job_pnl() -> None:
+    """End-of-day P&L snapshot (after the cache refresh holds the day's close). Idempotent; first run backfills all past days."""
+    from desk import pnl
+    try:
+        log.info("Daily PnL job: %s", pnl.rebuild())
+        job_sync()
+    except Exception as e:  # noqa: BLE001
+        log.warning("pnl snapshot failed: %s", e)
 
 
 def job_execute() -> None:
@@ -115,6 +126,9 @@ def main() -> None:
     sched.add_job(job_scan, "cron", day_of_week="mon-fri", hour=sh, minute=sm, id="scan", misfire_grace_time=3600)
     ch, cm = map(int, str(t.get("cache_time_et", "16:50")).split(":"))
     sched.add_job(job_cache, "cron", day_of_week="mon-fri", hour=ch, minute=cm, id="cache", misfire_grace_time=3600, max_instances=1)
+    ph, pm = map(int, str(t.get("pnl_time_et", "17:10")).split(":"))
+    sched.add_job(job_pnl, "cron", day_of_week="mon-fri", hour=ph, minute=pm, id="pnl", misfire_grace_time=3600, max_instances=1)
+    sched.add_job(job_pnl, "date", run_date=datetime.now(timezone.utc) + timedelta(seconds=10), id="pnl_startup")     # backfill / catch up after restarts
     sched.add_job(job_execute, "cron", day_of_week="mon-fri", hour=eh, minute=em, id="execute", misfire_grace_time=600)
     sched.add_job(job_scan, "date", run_date=datetime.now(timezone.utc) + timedelta(seconds=20), id="scan_startup")   # catch up after restarts / late cache
     sched.add_job(job_snapshot, "interval", minutes=int(t["snapshot_every_min"]), id="snapshot")

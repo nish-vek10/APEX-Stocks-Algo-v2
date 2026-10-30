@@ -12,7 +12,7 @@ from desk import settings
 
 def main() -> None:
     ap = argparse.ArgumentParser(prog="desk")
-    ap.add_argument("cmd", choices=["serve", "scan", "execute", "snapshot", "scheduler", "status", "sync", "requeue", "force-queue"])
+    ap.add_argument("cmd", choices=["serve", "scan", "execute", "snapshot", "scheduler", "status", "sync", "requeue", "force-queue", "pnl"])
     ap.add_argument("tickers", nargs="*", help="force-queue: tickers to queue for today's open, e.g. CCB")
     ap.add_argument("--risk", type=float, default=None, help="force-queue: risk %% of equity override, e.g. 0.5")
     ap.add_argument("--host", default="127.0.0.1")
@@ -37,6 +37,9 @@ def main() -> None:
     elif a.cmd == "execute":
         from desk.executor import Executor
         print(json.dumps(Executor().run_session(force=a.force), indent=2, default=str))
+    elif a.cmd == "pnl":
+        from desk import pnl
+        print(json.dumps(pnl.rebuild(), indent=2, default=str))
     elif a.cmd == "snapshot":
         from desk.scheduler import job_snapshot
         job_snapshot()

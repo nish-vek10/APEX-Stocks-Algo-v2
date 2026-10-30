@@ -112,8 +112,23 @@ function renderKpis() {
     ["Open stop risk", fmt(ex.open_risk_pct, 1) + "%", `${usd(ex.open_risk)} lost if every stop is hit`, ex.open_risk_pct > 30 ? "warn" : "", Math.min(100, ex.open_risk_pct / 40 * 100)],
     ["Equity", usd(s.equity), s.executor ? `${String(s.executor.broker).toUpperCase()} snapshot at ${s.executor.ts.slice(11, 16)} UTC` : "No broker snapshot yet", "", null],
   ];
-  setHtml($("#kpis"), k.map(([t, v, sub, cls, bar]) => `<div class="kpi ${cls}"><small>${t}</small><b>${v}</b><em>${sub}</em>${bar == null ? "" : `<div class="bar"><i style="width:${bar}%"></i></div>`}</div>`).join(""));
+  const d0 = (state.pnlDaily || [])[0];                                          // newest close-of-business snapshot
+  k.push(d0 ? ["Daily PnL &rsaquo;", sgn(d0.pnl), `${dmy(d0.date)}  ·  ${d0.n_opened} opened  ·  ${usd(d0.risk_opened)} risk`, d0.pnl >= 0 ? "ok" : "bad", null, "pnl"]
+            : ["Daily PnL &rsaquo;", "-", "First snapshot after the next close", "", null, "pnl"]);
+  setHtml($("#kpis"), k.map(([t, v, sub, cls, bar, id]) => `<div class="kpi ${cls}${id ? " clk" : ""}"${id ? ` data-k="${id}" title="Click for every day"` : ""}><small>${t}</small><b>${v}</b><em>${sub}</em>${bar == null ? "" : `<div class="bar"><i style="width:${bar}%"></i></div>`}</div>`).join(""));
 }
+const sgn = (v, d = 0) => v == null ? "-" : `${v >= 0 ? "+" : "-"}$${Math.abs(v).toLocaleString("en-GB", {maximumFractionDigits: d})}`;
+$("#kpis").onclick = e => { if (e.target.closest("[data-k=pnl]")) openPnlModal(); };
+function pnlModalHtml() {
+  const d = state.pnlDaily || [];
+  const cols = [["Date", r => `<b>${dmy(r.date)}</b>`], ["Combined PnL", r => pnlCell(r.pnl)], ["vs prior day", r => r.chg == null ? "" : pnlCell(r.chg)], ["Open positions", r => r.n_open],
+    ["Opened that day", r => r.n_opened || ""], ["Risk of those", r => r.n_opened ? usd(r.risk_opened) : ""], ["Total open risk", r => usd(r.risk_open)]];
+  const rows = d.map((r, i) => ({...r, chg: d[i + 1] ? r.pnl - d[i + 1].pnl : null}));
+  return `<table><thead><tr>${cols.map(c => `<th>${c[0]}</th>`).join("")}</tr></thead><tbody>${rows.map(r => `<tr>${cols.map(c => `<td>${c[1](r)}</td>`).join("")}</tr>`).join("") || `<tr><td colspan="${cols.length}" class="muted">No snapshots yet. The first one is taken after the next US close.</td></tr>`}</tbody></table>`;
+}
+async function openPnlModal() { try { state.pnlDaily = await api("/api/pnl/daily"); } catch (e) { /* keep the last copy */ } $("#pnlBody").innerHTML = pnlModalHtml(); $("#pnlModal").classList.remove("hidden"); }
+$("#pnlClose").onclick = () => $("#pnlModal").classList.add("hidden");
+$("#pnlModal").onclick = e => { if (e.target.id === "pnlModal") $("#pnlModal").classList.add("hidden"); };
 function renderAction() {
   const s = state.status, b = s.batch, c = s.counts, queued = c.queued > 0 || c.executed > 0;
   $("#btnConfirm").textContent = queued ? `QUEUED FOR THE OPEN (${c.queued + c.executed})` : `TRADE ALL CONFIRMED (${b.count})`;
@@ -316,10 +331,23 @@ async function loadTab(tab) {
     const c = sortBy(await api("/api/positions?status=closed"), "-exit_date", "-entry_date", "ticker");
     T($("#tblClosed"), [["Ticker", tkCell], ["Symbol", r => r.broker_symbol], ["Ticket", r => r.ticket], ["Entry date", r => fmtDate(r.entry_date)], ["Exit date", r => fmtDate(r.exit_date)], ["Days held", holdDays], ["Entry", r => fmt(r.entry_price, 4)], ["Exit", r => fmt(r.exit_price, 4)], ["Shares", r => fmt(r.shares, 0)], ["Exit reason", r => (r.exit_reason || "").replace(/_/g, " ")], ["P&L $", r => pnlCell(r.pnl_total)], ["R", r => r.pnl_r == null ? "" : `<span style="color:var(--${r.pnl_r >= 0 ? "ok" : "bad"})">${r.pnl_r >= 0 ? "+" : ""}${r.pnl_r.toFixed(2)}R</span>`]], c, tierCls);
   }
-  if (tab === "positions") { const p = sortBy(await api("/api/positions"), "-entry_date", "ticker", "ticket"); T($("#tblPos"), [["Ticker", tkCell], ["Symbol", r => r.broker_symbol], ["Ticket", r => r.ticket], ["Entry date", r => fmtDate(r.entry_date)], ["Entry", r => fmt(r.entry_price, 4)], ["Stop", r => fmt(r.stop_price, 4)], ["Shares", r => fmt(r.shares, 0)], ["Lots", r => r.mt5_volume], ["Risk $", r => usd(r.shares * r.stop_distance)]], p, tierCls); }
+  if (tab === "positions") {
+    const p = sortBy(await api("/api/positions"), "-entry_date", "ticker", "ticket"), by = {};
+    let dp = []; try { dp = await api("/api/pnl/positions"); } catch (e) { /* history optional */ }
+    dp.forEach(r => (by[r.position_id] = by[r.position_id] || []).push(r));                                    // already newest first
+    const cols = [["Ticker", r => `<span class="chev">${state.openPos.has(r.id) ? "&#9662;" : "&#9656;"}</span>${tkCell(r)}`], ["Symbol", r => r.broker_symbol], ["Ticket", r => r.ticket], ["Entry date", r => fmtDate(r.entry_date)],
+      ["Entry", r => fmt(r.entry_price, 4)], ["Stop", r => fmt(r.stop_price, 4)], ["Shares", r => fmt(r.shares, 0)], ["Lots", r => r.mt5_volume], ["Risk $", r => usd(r.shares * r.stop_distance)],
+      ["Last close", r => (by[r.id] || [])[0] ? fmt(by[r.id][0].close, 2) : ""], ["P&L $", r => (by[r.id] || [])[0] ? pnlCell(by[r.id][0].pnl) : ""]];
+    const deck = r => { const ds = by[r.id] || [];
+      return `<tr class="deckrow"><td colspan="${cols.length}"><div class="decks-h"><b>${r.ticker}</b> · entered ${fmtDate(r.entry_date)} at ${fmt(r.entry_price, 4)} · ${ds.length} day${ds.length === 1 ? "" : "s"}</div><div class="decks">${ds.map(d =>
+        `<div class="deck ${d.pnl >= 0 ? "up" : "dn"}"><small>${fmtDate(d.date)}${d.status === "exit" ? " · EXIT" : ""}</small><span>Close <b>${fmt(d.close, 2)}</b></span><em>${pnlCell(d.pnl)}</em></div>`).join("") || `<div class="muted">No close recorded yet. The first deck appears after the next US close.</div>`}</div></td></tr>`; };
+    setHtml($("#tblPos"), `<thead><tr>${cols.map(c => `<th>${c[0]}</th>`).join("")}</tr></thead><tbody>${p.map(r => `<tr class="${tierCls(r)} clk" data-pid="${r.id}">${cols.map(c => `<td>${c[1](r) ?? ""}</td>`).join("")}</tr>${state.openPos.has(r.id) ? deck(r) : ""}`).join("") || `<tr><td colspan="${cols.length}" class="muted">Nothing to show yet.</td></tr>`}</tbody>`);
+  }
   if (tab === "history") { const h = sortBy(await api("/api/history"), "-signal_date", "-entry_date", "ticker"); T($("#tblHist"), [["Signal date", r => fmtDate(r.signal_date)], ["Target session", r => fmtDate(r.entry_date)], ["Tier", r => `<span class="badge b-${r.tier}">${r.tier}</span>${r.watch ? ' <span class="badge b-star">&#9733;</span>' : ""}`], ["Ticker", r => `<b>${r.ticker}</b>`], ["Setup", r => r.setup], ["vs EMA200", r => pct(r.dist200)], ["Stage-2 age", r => r.days_since_s2], ["Decision", r => r.decision], ["Previous decision", r => r.last_decision && r.last_decision !== "none" ? `${r.last_decision} (${dmy(r.last_decision_date)})` : ""], ["Risk %", r => r.risk_pct ? (r.risk_pct * 100).toFixed(2) : ""], ["By", r => r.decided_by || ""], ["Execution", r => r.exec_status]], h, tierCls); }
   if (tab === "audit") { const a = sortBy(await api("/api/audit"), "-ts", "action", "-id"); T($("#tblAudit"), [["Time (UTC)", r => fmtTs(r.ts)], ["Actor", r => r.actor], ["Action", r => r.action], ["Detail", r => (r.detail || "").slice(0, 160)]], a); }
 }
+state.openPos = new Set();                                                       // expanded Positions rows (survive the 15 s refresh)
+$("#tblPos").onclick = e => { const tr = e.target.closest("tr[data-pid]"); if (!tr) return; const id = Number(tr.dataset.pid); state.openPos.has(id) ? state.openPos.delete(id) : state.openPos.add(id); loadTab("positions"); };
 // ---------- Executed tab: every entry the executor filled or failed, per session, with entry / stop / exit drawn on the chart ----------
 const exec = {sig: "", charts: [], rows: new Map(), io: new IntersectionObserver(es => es.forEach(e => { if (e.isIntersecting) { exec.io.unobserve(e.target); loadTradeChart(e.target); } }), {rootMargin: "500px"})};
 const reasonTxt = d => { const s = String(d || "unknown").replace(/\(.*\)/, "").replace(/_/g, " ").trim(); return s.charAt(0).toUpperCase() + s.slice(1); };
@@ -448,6 +476,7 @@ async function refresh() {
   try {
     const t0 = Date.now(); const s = await api("/api/status"); offsetMs = new Date(s.now_utc) - (t0 + Date.now()) / 2;
     state.status = s; state.signals = await api("/api/signals?session=" + s.session_date);
+    try { state.pnlDaily = await api("/api/pnl/daily"); } catch (e) { state.pnlDaily = state.pnlDaily || []; }      // optional: older backends / v5 SQL not run yet
     $("#modePill").textContent = s.mode === "live" ? "LIVE ORDERS" : "DRY RUN"; $("#modePill").className = "pill" + (s.mode === "live" ? " live" : "");
     $("#brandName").textContent = s.name.toUpperCase();
     const sel = $("#reviewer"); if (!sel.options.length) { s.reviewers.forEach(n => sel.add(new Option(n, n))); sel.value = localStorage.getItem("desk_reviewer") || s.reviewers[0]; sel.onchange = () => localStorage.setItem("desk_reviewer", sel.value); }

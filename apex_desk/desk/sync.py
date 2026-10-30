@@ -219,6 +219,21 @@ def _push_positions_audit(c: Cloud) -> None:
         c.upsert("desk_audit", aud, "id")
 
 
+def _push_pnl(c: Cloud) -> int:
+    """Daily P&L tables: pushed whenever a new snapshot exists (full upsert, a few thousand small rows at most)."""
+    rev = db.kv_get("pnl_rev")
+    if not rev or db.kv_get("pnl_pushed") == rev:
+        return 0
+    from desk import pnl
+    pos, day = pnl.per_position(), pnl.daily()
+    if pos:
+        c.upsert("desk_pnl_pos", pos, "position_id,date", chunk=500)
+    if day:
+        c.upsert("desk_pnl_daily", day, "date", chunk=500)
+    db.kv_set("pnl_pushed", rev)
+    return len(pos)
+
+
 def _commands(c: Cloud) -> None:
     global _scan_thread
     for cmd in c.get("desk_commands", done_at="is.null", cmd="eq.scan"):
@@ -250,6 +265,7 @@ def cycle(prune: bool = False) -> Dict[str, Any]:
     charts = _push_charts(c, rows)
     _push_status(c)
     _push_positions_audit(c)
+    _push_pnl(c)
     _commands(c)
     if prune:
         _prune(c)

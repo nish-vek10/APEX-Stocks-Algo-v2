@@ -81,6 +81,15 @@ async function api(path, opt) {
   if (p === "/api/batch/unlock") return {unlocked: ok(await sb.rpc("desk_unlock_batch", {p_entry_date: cache.sessDate, p_by: body.by}))};
   if (p === "/api/scan") { ok(await sb.rpc("desk_request_scan", {p_by: "web"})); return {started: true}; }
   if (p === "/api/positions") { const st = u.searchParams.get("status") === "closed" ? "closed" : "open"; return ok(await sb.from("desk_positions").select("*").eq("status", st).order(st === "closed" ? "exit_date" : "entry_date", {ascending: false}).limit(500)); }
+  if (p === "/api/pnl/daily") return ok(await sb.from("desk_pnl_daily").select("*").order("date", {ascending: false}).limit(2000));
+  if (p === "/api/pnl/positions") {                                             // PostgREST caps a response at 1000 rows: page through
+    const out = [];
+    for (let i = 0; i < 40; i++) {
+      const part = ok(await sb.from("desk_pnl_pos").select("*").order("date", {ascending: false}).order("position_id").range(i * 1000, i * 1000 + 999));
+      out.push(...part); if (part.length < 1000) break;
+    }
+    return out;
+  }
   if (p === "/api/trades") {                                                    // executed + failed entries joined to their position (fill / stop / exit)
     const since = new Date(Date.now() - 90 * 864e5).toISOString().slice(0, 10);
     const sg = ok(await sb.from("desk_signals").select("sid,signal_date,entry_date,ticker,tier,setup,exec_status,exec_detail,watch,sig_close,stop_price,risk_pct,est_shares,est_risk").in("exec_status", ["executed", "failed"]).gte("entry_date", since).order("entry_date", {ascending: false}).limit(1000));

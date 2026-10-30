@@ -3,6 +3,7 @@
 -- Supabase only holds what the Netlify dashboard needs and relays your Trade / Don't trade decisions back.
 -- Writes from the browser go ONLY through the SECURITY DEFINER functions at the bottom (they enforce the 13:30 London cut-off
 -- server-side). The Work PC writes with the service_role key (bypasses RLS). Safe to re-run.
+-- Later additions live in supabase_migration_v2..v5.sql (v5 = desk_pnl_daily / desk_pnl_pos for the Daily PnL feature).
 
 create table if not exists desk_signals (
   sid text primary key,                                   -- 'YYYY-MM-DD|TICKER' (signal_date|ticker)

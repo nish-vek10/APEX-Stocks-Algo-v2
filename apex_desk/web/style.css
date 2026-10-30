@@ -107,7 +107,9 @@ h1,h2,h3{font-family:var(--f-head);text-transform:uppercase;letter-spacing:.04em
 @keyframes candle{from{transform:scaleY(.35)}to{transform:scaleY(1.15)}}
 
 /* KPIs */
-.kpis{display:grid;grid-template-columns:repeat(6,1fr);gap:14px;padding:14px 28px}
+.kpis{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:11px;padding:14px 28px}
+.kpis .kpi{padding:13px 13px;min-width:0}.kpis .kpi b{font-size:21px}.kpis .kpi em{display:block;font-size:10.5px;line-height:1.35;overflow-wrap:anywhere}.kpis .kpi small{font-size:10px;letter-spacing:.1em}
+.kpi.clk{cursor:pointer}.kpi.clk:hover{border-color:var(--acc)}.kpi.bad b{color:var(--bad)}
 .kpi{background:var(--glass),var(--panel);backdrop-filter:var(--blur);-webkit-backdrop-filter:var(--blur);border:1px solid var(--line);border-radius:var(--r);padding:15px 17px;box-shadow:var(--sh),inset 0 1px 0 rgba(255,255,255,.07);transition:transform .25s,border-color .25s}
 .kpi:hover{transform:translateY(-2px);border-color:var(--line2)}
 .kpi small{font-family:var(--f-head);font-weight:600;letter-spacing:.14em}
@@ -204,11 +206,17 @@ td .tg{margin-right:9px}
 /* modal / toast */
 .modal{position:fixed;inset:0;background:rgba(2,5,10,.6);backdrop-filter:blur(8px);display:flex;align-items:center;justify-content:center;z-index:60}
 .modal-card{background:var(--glass),rgba(14,22,40,.78);backdrop-filter:blur(22px) saturate(160%);border:1px solid var(--line2);border-radius:20px;padding:24px 28px;width:min(640px,92vw);max-height:86vh;overflow:auto;box-shadow:0 24px 70px rgba(0,0,0,.6),inset 0 1px 0 rgba(255,255,255,.1)}
+.modal-card.wide{width:min(900px,94vw)}.pnl-scroll{max-height:62vh;overflow:auto}.pnl-scroll table{width:100%;border-collapse:collapse}.pnl-scroll th{position:sticky;top:0;background:rgba(14,22,40,.96);text-align:left;font-size:11px;letter-spacing:.08em;color:var(--mut);padding:8px 10px}.pnl-scroll td{padding:8px 10px;border-top:1px solid var(--line)}
+tr.clk{cursor:pointer}tr.clk:hover td{background:rgba(255,255,255,.035)}.chev{display:inline-block;width:14px;color:var(--mut);font-size:11px}
+tr.deckrow>td{background:rgba(255,255,255,.02);padding:12px 16px 16px}.decks-h{font-size:12px;color:var(--mut);margin-bottom:10px}.decks-h b{color:var(--txt,#e6ebf5)}
+.decks{display:grid;grid-template-columns:repeat(auto-fill,minmax(138px,1fr));gap:10px;max-height:300px;overflow:auto;padding-right:4px}
+.deck{background:var(--panel2);border:1px solid var(--line);border-left:3px solid var(--ok);border-radius:12px;padding:9px 11px;display:grid;gap:3px}.deck.dn{border-left-color:var(--bad)}
+.deck small{font-size:10.5px;color:var(--mut);letter-spacing:.05em}.deck span{font-size:12px}.deck em{font-style:normal;font:700 15px var(--f-head)}
 .modal-card h3{margin:0 0 10px;font-size:18px}.modal-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:16px}
 .warnbox{border:1px solid #ffb54766;background:#ffb5471a;color:var(--warn);border-radius:10px;padding:8px 12px;margin:8px 0;font-size:12px}
 .sumgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:10px 0}.sumgrid div{background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:10px 12px}.sumgrid b{font:700 19px var(--f-head);display:block}
 .toast{position:fixed;right:24px;bottom:104px;background:rgba(16,24,42,.8);backdrop-filter:var(--blur);border:1px solid var(--line2);padding:11px 18px;border-radius:12px;z-index:70;box-shadow:var(--sh)}.toast.err{border-color:var(--bad);color:var(--bad)}
 .empty{padding:60px;text-align:center;color:var(--dim)}
-@media(max-width:1280px){.hero{flex-direction:column;align-items:flex-start}.kpis{grid-template-columns:repeat(3,1fr)}}
+@media(max-width:1280px){.hero{flex-direction:column;align-items:flex-start}.kpis{grid-template-columns:repeat(4,minmax(0,1fr))}}
 @media(max-width:1180px){.cols2,.cols3{grid-template-columns:1fr}.metrics{grid-template-columns:repeat(3,1fr)}.app-header{flex-wrap:wrap}.hint{display:none}.timers{flex-wrap:wrap}}
 @media(prefers-reduced-motion:reduce){*{animation-duration:.001s!important;animation-iteration-count:1!important}}
