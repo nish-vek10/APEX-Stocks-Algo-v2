@@ -46,6 +46,15 @@ function toast(msg, err) { const t = $("#toast"); t.textContent = msg; t.classNa
 const reviewer = () => $("#reviewer").value || "Nish";
 const tierLabel = k => (state.status.tiers[k] || {}).label || "Info only";
 
+// ---------- header: the tab bar squeezes itself (font, padding, spacing) until every tab fits between the logo and the clocks ----------
+const fitHeader = () => {
+  const nav = $("#nav"), root = document.documentElement; let sc = 1;
+  root.style.setProperty("--hs", "1");
+  for (let i = 0; i < 24 && nav.scrollWidth > nav.clientWidth + 1 && sc > 0.5; i++) { sc -= 0.03; root.style.setProperty("--hs", sc.toFixed(2)); }
+};
+let fitTimer; window.addEventListener("resize", () => { clearTimeout(fitTimer); fitTimer = setTimeout(fitHeader, 120); });
+(document.fonts && document.fonts.ready ? document.fonts.ready : Promise.resolve()).then(fitHeader); fitHeader();
+
 // ---------- clock / countdown ring ----------
 const CIRC = 2 * Math.PI * 52;
 const STATES = ["s-ok", "s-warn", "s-crit", "s-locked", "s-open", "s-closed", "s-batch", "s-soon"];
@@ -523,7 +532,7 @@ async function refresh() {
     $("#tbPos").textContent = s.exposure.open_positions;
     api("/api/positions?status=closed").then(c => { $("#tbClosed").textContent = c.length; }).catch(() => {});
     $("#tbWatch").textContent = state.signals.filter(x => bdv && x.signal_date < bdv && isTradable(x) && !bset.has(x.ticker)).length;
-    tick(); renderHero(); renderKpis(); renderChips(); renderList(false); renderAction();
+    tick(); renderHero(); renderKpis(); renderChips(); renderList(false); renderAction(); fitHeader();      // tab badges change the tab widths
   } catch (e) { toast("Cannot load the desk data: " + e.message, true); }
 }
 const poll = async () => { if (document.hidden || poll.busy) return; poll.busy = true; try { await refresh(); if (!sv()) await loadTab(state.tab); } catch (e) { /* refresh() reports its own errors */ } finally { poll.busy = false; } };
