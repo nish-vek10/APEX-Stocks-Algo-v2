@@ -350,7 +350,7 @@ async function loadTab(tab) {
 // ---------- Benchmark tab: S&P 500 vs the stocks we hold (price only, day % vs the previous close) ----------
 const bpct = v => v == null ? "" : `<span style="color:var(--${v >= 0 ? "ok" : "bad"})">${v >= 0 ? "+" : ""}${(v * 100).toFixed(2)}%</span>`;
 const bench = {rows: [], tickers: [], by: {}};
-const compound = (rows, k) => rows.reduce((a, r) => r[k] == null ? a : a * (1 + r[k]), 1) - 1;
+const compound = (rows, k) => rows.some(r => r[k] != null) ? rows.reduce((a, r) => r[k] == null ? a : a * (1 + r[k]), 1) - 1 : null;
 async function loadBench() {
   const [d, s] = await Promise.all([api("/api/bench/daily"), api("/api/bench/stocks")]);
   const daily = sortBy(d, "-date"), by = {}; s.forEach(r => by[r.date + "|" + r.ticker] = r);
@@ -358,15 +358,17 @@ async function loadBench() {
   Object.assign(bench, {rows: daily, tickers, by});
   const done = daily.filter(r => !r.live), ex = (r, k) => r[k] == null || r.spx_pct == null ? null : r[k] - r.spx_pct;
   const beat = (k) => { const x = done.filter(r => ex(r, k) != null); return x.length ? `${x.filter(r => ex(r, k) > 0).length} of ${x.length} days` : "-"; };
-  const card = (t, v, sub) => `<div class="kpi"><small>${t}</small><b>${v}</b><em>${sub}</em></div>`;
+  const card = (t, v, sub) => `<div class="kpi"><small>${t}</small><b>${v || "-"}</b><em>${sub}</em></div>`;
   setHtml($("#benchSum"), card("S&amp;P 500", bpct(compound(done, "spx_pct")), "compounded, completed days") + card("Equal weight", bpct(compound(done, "ew_pct")), `beat S&amp;P on ${beat("ew_pct")}`) +
     card("Risk weighted", bpct(compound(done, "w_pct")), `beat S&amp;P on ${beat("w_pct")}`) + card("Account equity", bpct(compound(done, "port_pct")), "from the first recorded close"));
   const cols = [["Date", r => `<b>${dmy(r.date)}</b>${r.live ? ' <span class="badge b-live">LIVE</span>' : ""}`], ["S&amp;P 500", r => bpct(r.spx_pct)], ["Portfolio equity", r => bpct(r.port_pct)], ["Equal weight", r => bpct(r.ew_pct)],
     ["Risk weighted", r => bpct(r.w_pct)], ["EW vs S&amp;P", r => bpct(ex(r, "ew_pct"))], ["Wtd vs S&amp;P", r => bpct(ex(r, "w_pct"))], ["Stocks", r => r.n_stocks || ""],
     ...tickers.map(t => [t, r => { const x = by[r.date + "|" + t]; return x ? bpct(x.pct) : ""; }])];
-  setHtml($("#tblBench"), `<thead><tr>${cols.map((c, i) => `<th${i < 2 ? ' class="stk"' : ""}>${c[0]}</th>`).join("")}</tr></thead><tbody>${daily.map(r => `<tr class="${r.live ? "live" : ""}">${cols.map((c, i) => `<td${i < 2 ? ' class="stk"' : ""}>${c[1](r)}</td>`).join("")}</tr>`).join("") || `<tr><td colspan="8" class="muted">No data yet. The first rows appear after the next snapshot.</td></tr>`}</tbody>`);
+  const tips = {"EW vs S&amp;P": "Equal weight minus S&P 500 (percentage points)", "Wtd vs S&amp;P": "Risk weighted minus S&P 500 (percentage points)", "Portfolio equity": "MT5 account equity at 16:00 ET vs the previous close", "Equal weight": "Average day % of the stocks held (1/N each)", "Risk weighted": "Average day % weighted by tier risk multiple (A 1.0, B/W 0.5)"};
+  setHtml($("#tblBench"), `<thead><tr>${cols.map((c, i) => `<th${i < 2 ? ' class="stk"' : ""}${tips[c[0]] ? ` title="${tips[c[0]]}"` : ""}>${c[0]}</th>`).join("")}</tr></thead><tbody>${daily.map(r => `<tr class="${r.live ? "live" : ""}">${cols.map((c, i) => `<td${i < 2 ? ' class="stk"' : ""}>${c[1](r)}</td>`).join("")}</tr>`).join("") || `<tr><td colspan="8" class="muted">No data yet. The first rows appear after the next snapshot.</td></tr>`}</tbody>`);
   const live = daily.find(r => r.live);
-  $("#benchNote").textContent = live ? `Live row updates every 5 minutes (last ${String(live.updated_at || "").slice(11, 16)} UTC). Completed days use the official close.` : "Day % = close vs previous close, price only. Completed days use the official close.";
+  setHtml($("#benchNote"), `<b>Day %</b> = close vs previous close, price only. <b>EW vs S&amp;P</b> = Equal weight minus S&amp;P 500. <b>WTD vs S&amp;P</b> = Risk weighted minus S&amp;P 500 (percentage points ahead of or behind the index; positive = we beat it). <b>Portfolio equity</b> = MT5 account equity at the 16:00 ET close vs the previous close.` +
+    (live ? ` <span class="b-livenote">Live row refreshes every 5 minutes (last ${String(live.updated_at || "").slice(11, 16)} UTC); completed days use the official close.</span>` : ""));
 }
 $("#benchCsv").onclick = () => {
   const head = ["Date", "SPX", "Portfolio equity", "Equal weight", "Risk weighted", ...bench.tickers], f = v => v == null ? "" : (v * 100).toFixed(2);
