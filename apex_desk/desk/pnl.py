@@ -13,11 +13,12 @@ CLI: python -m desk pnl
 from __future__ import annotations
 
 import logging
+import sqlite3
 from typing import Any, Dict, List
 
 import pandas as pd
 
-from desk import db, engine
+from desk import db, engine, settings
 
 log = logging.getLogger("desk.pnl")
 
@@ -37,7 +38,16 @@ def _ensure() -> None:
     global _ready
     if not _ready:
         db.conn().executescript(DDL)
+        for col in ("realised", "equity"):                                   # migrations for older DB files
+            try:
+                db.conn().execute(f"ALTER TABLE pnl_daily ADD COLUMN {col} REAL")
+            except sqlite3.OperationalError:
+                pass
         _ready = True
+
+
+def start_equity() -> float:
+    return float(settings.cfg().get("bench", {}).get("start_equity", 100000.0))
 
 
 def _closes(ticker: str) -> Dict[str, float]:
@@ -98,6 +108,13 @@ def rebuild() -> Dict[str, Any]:
                    "SELECT d.date, ROUND(SUM(d.pnl),2), COUNT(*), SUM(CASE WHEN p.entry_date=d.date THEN 1 ELSE 0 END), "
                    "ROUND(SUM(CASE WHEN p.entry_date=d.date THEN p.shares*p.stop_distance ELSE 0 END),2), ROUND(SUM(p.shares*p.stop_distance),2) "
                    "FROM pnl_pos_daily d JOIN positions p ON p.id=d.position_id GROUP BY d.date")
+        # model equity = start equity + P&L since inception: open positions at the close (running) + every position already exited (realised)
+        done = sorted((p["exit_date"], p["pnl_total"] if p["pnl_total"] is not None else ((p["exit_price"] or p["entry_price"]) - p["entry_price"]) * p["shares"])
+                      for p in pos if p["status"] == "closed" and p["exit_date"])
+        base = start_equity()
+        for r in cx.execute("SELECT date, pnl FROM pnl_daily").fetchall():
+            realised = round(sum(v for d, v in done if d < r["date"]), 2)             # exit-day P&L is already inside that day's pnl
+            cx.execute("UPDATE pnl_daily SET realised=?, equity=? WHERE date=?", (realised, round(base + r["pnl"] + realised, 2), r["date"]))
         cx.commit()
     n = db.one("SELECT COUNT(*) AS n FROM pnl_daily")["n"]
     db.kv_set("pnl_rev", db.now_iso())

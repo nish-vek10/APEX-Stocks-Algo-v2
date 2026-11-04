@@ -5,9 +5,9 @@ Day % = close / previous TRADING-day close - 1 (the overnight gap is included), 
   spx_pct   S&P 500 (OANDA SPX500_USD, 5-minute candles; cash close = the close of the last candle that starts before 16:00 ET, i.e. 15:55 ET)
   ew_pct    equal weight: simple average of the held stocks' day %  (1/N each)
   w_pct     risk weighted: weights follow the tier risk multiple (A 1.0, B / W 0.5, starred C 0.5), normalised to 100%
-  port_pct  MT5 account equity at 16:00 ET vs equity at the previous trading day's 16:00 ET (the real portfolio: sizing, costs, realised results)
+  port_pct  model equity vs the previous close: start equity (bench.start_equity, 100,000) + all P&L since inception (open positions at the close + realised), from the Daily PnL snapshot
 A stock is held from its entry date to its exit date (a ticker entered twice counts once, at its highest multiple).
-Schedule: close_snapshot() 16:00 ET (equity), live() every 5 min in market hours, rebuild() 17:10 ET + scheduler start (history / backfill).
+Schedule: live() every 5 min in market hours, rebuild() 17:10 ET + scheduler start (history / backfill). Needs pnl.rebuild() first (equity).
 A missing close never produces a multi-day move: if the previous trading day has no close, the % stays blank.
 Env (.env, Work PC only):  DESK_OANDA_TOKEN  DESK_OANDA_ENV=practice|live   (optional DESK_OANDA_INSTRUMENT, default SPX500_USD)
 CLI: python -m desk bench [--live | --check | --refresh]
@@ -141,8 +141,10 @@ def _holdings() -> List[Dict[str, Any]]:
     return db.q("SELECT ticker,tier,entry_date,exit_date,exit_price,status,broker_symbol FROM positions WHERE entry_date IS NOT NULL")
 
 
-def _eq_close() -> Dict[str, float]:
-    return db.kv_get("eq_close") or {}
+def _equity_by_day() -> Dict[str, float]:
+    """Model equity per close = start equity + P&L since inception (open positions at the close + realised), from the Daily PnL snapshot."""
+    from desk import pnl
+    return {r["date"]: r["equity"] for r in pnl.daily() if r["equity"] is not None}
 
 
 def _agg(date: str) -> Dict[str, Any]:
@@ -153,13 +155,17 @@ def _agg(date: str) -> Dict[str, Any]:
     return {"ew_pct": sum(r["pct"] for r in rows) / len(rows), "w_pct": sum(r["pct"] * r["weight"] for r in rows) / wsum, "n_stocks": len(rows)}
 
 
-def _write_day(date: str, spx: Dict[str, float], live: int, spx_close: Optional[float] = None, equity: Optional[float] = None) -> None:
+def _write_day(date: str, spx: Dict[str, float], live: int, spx_close: Optional[float] = None, equity: Optional[float] = None,
+               eqs: Optional[Dict[str, float]] = None) -> None:
+    from desk import pnl
     prev_d = _prev_td(date)
     sc = spx_close if spx_close is not None else spx.get(date)
     sp = spx.get(prev_d) if prev_d else None                      # strictly the previous TRADING day, never an older one
-    eqs = _eq_close()
+    eqs = eqs if eqs is not None else _equity_by_day()
     eq = equity if equity is not None else eqs.get(date)
     eqp = eqs.get(prev_d) if prev_d else None
+    if eqp is None and eqs and date <= min(eqs) and prev_d not in eqs:
+        eqp = pnl.start_equity()                                   # first day: change vs the starting equity
     a = _agg(date)
     db.x("INSERT INTO bench_daily(date,spx_close,spx_prev,spx_pct,ew_pct,w_pct,n_stocks,equity,equity_prev,port_pct,live,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?) "
          "ON CONFLICT(date) DO UPDATE SET spx_close=excluded.spx_close, spx_prev=excluded.spx_prev, spx_pct=excluded.spx_pct, ew_pct=excluded.ew_pct, w_pct=excluded.w_pct, "
@@ -211,8 +217,9 @@ def rebuild(refresh_index: bool = False) -> Dict[str, Any]:
                 prev, px = float(df["close"].iloc[i - 1]), float(h["exit"] or df["close"].iloc[i])
                 cx.execute("INSERT OR REPLACE INTO bench_stock(date,ticker,prev_close,close,pct,weight,live) VALUES(?,?,?,?,?,?,0)", (d, t, prev, px, px / prev - 1, h["w"]))
         cx.commit()
+    eqs = _equity_by_day()
     for d in cal:
-        _write_day(d, spx, 0)
+        _write_day(d, spx, 0, eqs=eqs)
     db.kv_set("bench_rev", db.now_iso())
     n = db.one("SELECT COUNT(*) n FROM bench_daily")["n"]
     log.info("Benchmark rebuilt: %d days, index %s", n, "OANDA" if configured() else "NOT configured (no DESK_OANDA_TOKEN)")
@@ -221,8 +228,10 @@ def rebuild(refresh_index: bool = False) -> Dict[str, Any]:
 
 # ── today ──────────────────────────────────────────────────────────────────────
 def live() -> Dict[str, Any]:
-    """Every 5 minutes, 09:30-16:00 ET: running day % vs the previous close for the held stocks (MT5 mid), the S&P 500 (OANDA) and account equity (MT5)."""
+    """Every 5 minutes, 09:30-16:00 ET: running day % vs the previous close for the held stocks (MT5 mid), the S&P 500 (OANDA) and the model equity
+    (start equity + realised + open positions marked at those prices). Needs the scheduler's MT5 lock."""
     _ensure()
+    from desk import pnl
     from desk.executor import MT5_LOCK, Executor
     now = _et_now()
     today = str(now.date())
@@ -232,11 +241,11 @@ def live() -> Dict[str, Any]:
     pos = [p for p in _holdings() if p["status"] == "open"]
     if not pos or not MT5_LOCK.acquire(blocking=False):
         return {"skipped": "no positions or MT5 busy"}
+    px_now: Dict[str, float] = {}
     try:
         ex = Executor()
         ex.broker.connect()
         try:
-            snap = ex.snapshot()
             held: Dict[str, Dict[str, Any]] = {}
             for p in pos:
                 h = held.setdefault(p["ticker"], {"w": 0.0, "sym": p["broker_symbol"]})
@@ -251,6 +260,7 @@ def live() -> Dict[str, Any]:
                 if before.empty or tick is None:
                     continue
                 prev, px = float(before["close"].iloc[-1]), (tick.bid + tick.ask) / 2
+                px_now[t] = px
                 rows.append((today, t, prev, px, px / prev - 1, h["w"]))
         finally:
             ex.broker.disconnect()
@@ -261,48 +271,20 @@ def live() -> Dict[str, Any]:
         cx.execute("DELETE FROM bench_stock WHERE date=?", (today,))
         cx.executemany("INSERT INTO bench_stock(date,ticker,prev_close,close,pct,weight,live) VALUES(?,?,?,?,?,?,1)", rows)
         cx.commit()
+    realised = sum(r["v"] for r in db.q("SELECT COALESCE(pnl_total, (COALESCE(exit_price, entry_price) - entry_price) * shares) AS v FROM positions "
+                                         "WHERE status='closed' AND entry_price IS NOT NULL"))
+    running = sum((px_now.get(p["ticker"], p["entry_price"]) - p["entry_price"]) * p["shares"] for p in db.q(
+        "SELECT ticker, entry_price, shares FROM positions WHERE status='open' AND entry_price IS NOT NULL"))
+    eq_live = round(pnl.start_equity() + realised + running, 2)
     spx = db.kv_get("spx_close") or {}
     try:
         spx_px = spx_now()
     except Exception as e:  # noqa: BLE001
         log.warning("OANDA live index failed: %s", e)
         spx_px = None
-    _write_day(today, spx, 1, spx_px, snap.get("equity") or None)       # running equity; the official close equity is stored by close_snapshot()
+    _write_day(today, spx, 1, spx_px, eq_live)
     db.kv_set("bench_rev", db.now_iso())
-    return {"date": today, "stocks": len(rows), "spx": spx_px, "equity": snap.get("equity")}
-
-
-def close_snapshot() -> Dict[str, Any]:
-    """16:00 ET: record MT5 account equity as the day's closing equity (same moment as the cash-close prices). Retried until stored."""
-    _ensure()
-    from desk.executor import MT5_LOCK, Executor
-    now = _et_now()
-    today = str(now.date())
-    if not tc.is_trading_day(today) or now.hour * 60 + now.minute < CASH_CLOSE_MIN:
-        return {"skipped": "not after the close"}
-    eqs = _eq_close()
-    if today in eqs:
-        return {"skipped": "already stored", "equity": eqs[today]}
-    if not MT5_LOCK.acquire(timeout=90):
-        return {"skipped": "MT5 busy"}
-    try:
-        ex = Executor()
-        ex.broker.connect()
-        try:
-            eq = ex.snapshot().get("equity")
-        finally:
-            ex.broker.disconnect()
-    finally:
-        MT5_LOCK.release()
-    if not eq:
-        return {"skipped": "no equity reading"}
-    eqs[today] = float(eq)
-    db.kv_set("eq_close", {d: eqs[d] for d in sorted(eqs)[-400:]})
-    row = db.one("SELECT spx_close FROM bench_daily WHERE date=?", (today,)) or {}
-    _write_day(today, db.kv_get("spx_close") or {}, 1, row.get("spx_close"), float(eq))
-    db.kv_set("bench_rev", db.now_iso())
-    log.info("Closing equity stored for %s: %.2f", today, eq)
-    return {"date": today, "equity": eq}
+    return {"date": today, "stocks": len(rows), "spx": spx_px, "equity": eq_live}
 
 
 # ── verification: our stored closes vs OANDA daily candles (16:00 ET alignment) and SPY (TwelveData, independent reference) ──

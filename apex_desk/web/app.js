@@ -113,7 +113,7 @@ function renderKpis() {
     ["Equity", usd(s.equity), s.executor ? `${String(s.executor.broker).toUpperCase()} snapshot at ${s.executor.ts.slice(11, 16)} UTC` : "No broker snapshot yet", "", null],
   ];
   const d0 = (state.pnlDaily || [])[0];                                          // newest close-of-business snapshot
-  k.push(d0 ? ["Daily PnL &rsaquo;", sgn(d0.pnl), `${dmy(d0.date)}  ·  ${d0.n_opened} opened  ·  ${usd(d0.risk_opened)} risk`, d0.pnl >= 0 ? "ok" : "bad", null, "pnl"]
+  k.push(d0 ? ["Daily PnL &rsaquo;", sgn(d0.pnl), `${dmy(d0.date)}  ·  ${d0.n_opened} opened  ·  ${usd(d0.risk_opened)} risk` + (d0.equity != null ? `<br>Equity ${usd(d0.equity)}` : ""), d0.pnl >= 0 ? "ok" : "bad", null, "pnl"]
             : ["Daily PnL &rsaquo;", "-", "First snapshot after the next close", "", null, "pnl"]);
   setHtml($("#kpis"), k.map(([t, v, sub, cls, bar, id]) => `<div class="kpi ${cls}${id ? " clk" : ""}"${id ? ` data-k="${id}" title="Click for every day"` : ""}><small>${t}</small><b>${v}</b><em>${sub}</em>${bar == null ? "" : `<div class="bar"><i style="width:${bar}%"></i></div>`}</div>`).join(""));
 }
@@ -121,9 +121,10 @@ const sgn = (v, d = 0) => v == null ? "-" : `${v >= 0 ? "+" : "-"}$${Math.abs(v)
 $("#kpis").onclick = e => { if (e.target.closest("[data-k=pnl]")) openPnlModal(); };
 function pnlModalHtml() {
   const d = state.pnlDaily || [];
-  const cols = [["Date", r => `<b>${dmy(r.date)}</b>`], ["Combined PnL", r => pnlCell(r.pnl)], ["vs prior day", r => r.chg == null ? "" : pnlCell(r.chg)], ["Open positions", r => r.n_open],
-    ["Opened that day", r => r.n_opened || ""], ["Risk of those", r => r.n_opened ? usd(r.risk_opened) : ""], ["Total open risk", r => usd(r.risk_open)]];
-  const rows = d.map((r, i) => ({...r, chg: d[i + 1] ? r.pnl - d[i + 1].pnl : null}));
+  const cols = [["Date", r => `<b>${dmy(r.date)}</b>`], ["Combined PnL", r => pnlCell(r.pnl)], ["vs prior day", r => r.chg == null ? "" : pnlCell(r.chg)], ["Equity", r => r.equity == null ? "" : usd(r.equity)],
+    ["Equity %", r => bpct(r.eq_pct)], ["Open positions", r => r.n_open], ["Opened that day", r => r.n_opened || ""], ["Risk of those", r => r.n_opened ? usd(r.risk_opened) : ""], ["Total open risk", r => usd(r.risk_open)]];
+  const start = d.length && d[0].equity != null ? d[0].equity - d[0].pnl - (d[0].realised || 0) : null;                      // starting equity = equity - all P&L since inception
+  const rows = d.map((r, i) => ({...r, chg: d[i + 1] ? r.pnl - d[i + 1].pnl : null, eq_pct: r.equity == null ? null : (d[i + 1] ? d[i + 1].equity : start) ? r.equity / (d[i + 1] ? d[i + 1].equity : start) - 1 : null}));
   return `<table><thead><tr>${cols.map(c => `<th>${c[0]}</th>`).join("")}</tr></thead><tbody>${rows.map(r => `<tr>${cols.map(c => `<td>${c[1](r)}</td>`).join("")}</tr>`).join("") || `<tr><td colspan="${cols.length}" class="muted">No snapshots yet. The first one is taken after the next US close.</td></tr>`}</tbody></table>`;
 }
 async function openPnlModal() { try { state.pnlDaily = await api("/api/pnl/daily"); } catch (e) { /* keep the last copy */ } $("#pnlBody").innerHTML = pnlModalHtml(); $("#pnlModal").classList.remove("hidden"); }
@@ -360,14 +361,14 @@ async function loadBench() {
   const beat = (k) => { const x = done.filter(r => ex(r, k) != null); return x.length ? `${x.filter(r => ex(r, k) > 0).length} of ${x.length} days` : "-"; };
   const card = (t, v, sub) => `<div class="kpi"><small>${t}</small><b>${v || "-"}</b><em>${sub}</em></div>`;
   setHtml($("#benchSum"), card("S&amp;P 500", bpct(compound(done, "spx_pct")), "compounded, completed days") + card("Equal weight", bpct(compound(done, "ew_pct")), `beat S&amp;P on ${beat("ew_pct")}`) +
-    card("Risk weighted", bpct(compound(done, "w_pct")), `beat S&amp;P on ${beat("w_pct")}`) + card("Account equity", bpct(compound(done, "port_pct")), "from the first recorded close"));
-  const cols = [["Date", r => `<b>${dmy(r.date)}</b>${r.live ? ' <span class="badge b-live">LIVE</span>' : ""}`], ["S&amp;P 500", r => bpct(r.spx_pct)], ["Portfolio equity", r => bpct(r.port_pct)], ["Equal weight", r => bpct(r.ew_pct)],
+    card("Risk weighted", bpct(compound(done, "w_pct")), `beat S&amp;P on ${beat("w_pct")}`) + card("Portfolio", bpct(compound(done, "port_pct")), "equity change since the 100k start"));
+  const cols = [["Date", r => `<b>${dmy(r.date)}</b>${r.live ? ' <span class="badge b-live">LIVE</span>' : ""}`], ["S&amp;P 500", r => bpct(r.spx_pct)], ["Portfolio", r => bpct(r.port_pct)], ["Equal weight", r => bpct(r.ew_pct)],
     ["Risk weighted", r => bpct(r.w_pct)], ["EW vs S&amp;P", r => bpct(ex(r, "ew_pct"))], ["Wtd vs S&amp;P", r => bpct(ex(r, "w_pct"))], ["Stocks", r => r.n_stocks || ""],
     ...tickers.map(t => [t, r => { const x = by[r.date + "|" + t]; return x ? bpct(x.pct) : ""; }])];
-  const tips = {"EW vs S&amp;P": "Equal weight minus S&P 500 (percentage points)", "Wtd vs S&amp;P": "Risk weighted minus S&P 500 (percentage points)", "Portfolio equity": "MT5 account equity at 16:00 ET vs the previous close", "Equal weight": "Average day % of the stocks held (1/N each)", "Risk weighted": "Average day % weighted by tier risk multiple (A 1.0, B/W 0.5)"};
+  const tips = {"EW vs S&amp;P": "Equal weight minus S&P 500 (percentage points)", "Wtd vs S&amp;P": "Risk weighted minus S&P 500 (percentage points)", "Portfolio": "Change in portfolio equity: 100,000 start + all P&L since inception (open positions at the close + realised), day vs previous close", "Equal weight": "Average day % of the stocks held (1/N each)", "Risk weighted": "Average day % weighted by tier risk multiple (A 1.0, B/W 0.5)"};
   setHtml($("#tblBench"), `<thead><tr>${cols.map((c, i) => `<th${i < 2 ? ' class="stk"' : ""}${tips[c[0]] ? ` title="${tips[c[0]]}"` : ""}>${c[0]}</th>`).join("")}</tr></thead><tbody>${daily.map(r => `<tr class="${r.live ? "live" : ""}">${cols.map((c, i) => `<td${i < 2 ? ' class="stk"' : ""}>${c[1](r)}</td>`).join("")}</tr>`).join("") || `<tr><td colspan="8" class="muted">No data yet. The first rows appear after the next snapshot.</td></tr>`}</tbody>`);
   const live = daily.find(r => r.live);
-  setHtml($("#benchNote"), `<b>Day %</b> = close vs previous close, price only. <b>EW vs S&amp;P</b> = Equal weight minus S&amp;P 500. <b>WTD vs S&amp;P</b> = Risk weighted minus S&amp;P 500 (percentage points ahead of or behind the index; positive = we beat it). <b>Portfolio equity</b> = MT5 account equity at the 16:00 ET close vs the previous close.` +
+  setHtml($("#benchNote"), `<b>Day %</b> = close vs previous close, price only. <b>EW vs S&amp;P</b> = Equal weight minus S&amp;P 500. <b>WTD vs S&amp;P</b> = Risk weighted minus S&amp;P 500 (percentage points ahead of or behind the index; positive = we beat it). <b>Portfolio</b> = change in portfolio equity (100,000 start + all P&amp;L since inception) vs the previous close; the same equity is on the Daily PnL card.` +
     (live ? ` <span class="b-livenote">Live row refreshes every 5 minutes (last ${String(live.updated_at || "").slice(11, 16)} UTC); completed days use the official close.</span>` : ""));
 }
 $("#benchCsv").onclick = () => {

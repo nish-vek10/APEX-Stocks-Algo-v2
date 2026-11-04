@@ -26,8 +26,9 @@ ins = ("INSERT INTO positions(ticker,tier,entry_date,entry_price,shares,stop_dis
 db.x(ins, ("AAA", "A", "2026-10-26", 10.0, 100, 1.0, "open", None, None))                  # weight 1.0 (A)
 db.x(ins, ("AAA", "B", "2026-10-28", 12.0, 50, 1.0, "open", None, None))                   # same ticker again: counted once, max multiple
 db.x(ins, ("BBB", "B", "2026-10-27", 20.0, 10, 1.5, "closed", "2026-10-29", 21.0))        # weight 0.5 (B), exits 29th at 21 (prev close 18)
-db.kv_set("eq_close", {"2026-10-26": 100000.0, "2026-10-27": 100500.0, "2026-10-28": 100000.0})
+from desk import pnl  # noqa: E402
 
+pnl.rebuild()                                                                              # model equity = 100,000 + all P&L since inception
 r = bench.rebuild()
 d = {x["date"]: x for x in bench.daily()}
 s = {(x["date"], x["ticker"]): x for x in bench.stocks()}
@@ -39,7 +40,10 @@ assert abs(d["2026-10-27"]["w_pct"] - (0.10 * 1.0 + 0.0 * 0.5) / 1.5) < 1e-9    
 assert abs(s[("2026-10-28", "BBB")]["pct"] - (18 / 20 - 1)) < 1e-9 and s[("2026-10-28", "AAA")]["weight"] == 1.0
 assert abs(s[("2026-10-29", "BBB")]["pct"] - (21 / 18 - 1)) < 1e-9                             # exit day uses the exit price vs previous close
 assert ("2026-10-30", "BBB") not in s and d["2026-10-30"]["n_stocks"] == 1
-assert abs(d["2026-10-27"]["port_pct"] - 0.005) < 1e-9 and d["2026-10-26"]["port_pct"] is None
+e = {x["date"]: x for x in pnl.daily()}
+assert e["2026-10-27"]["equity"] == 100100.0 and e["2026-10-26"]["equity"] == 100000.0           # 100k + (11-10)*100 + (20-20)*10
+assert abs(d["2026-10-27"]["port_pct"] - 0.001) < 1e-9 and d["2026-10-26"]["port_pct"] == 0.0   # first day is measured against the 100k start
+assert e["2026-10-30"]["realised"] == 10.0 and e["2026-10-30"]["equity"] == 100000 + 331 + 65.5 + 10 and e["2026-10-29"]["realised"] == 0.0   # BBB realised +10 counts after its exit day
 SPX.pop("2026-10-28")                                                                      # a missing close must blank the day AND the next day, never span 2 days
 bench.rebuild()
 d = {x["date"]: x for x in bench.daily()}

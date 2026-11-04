@@ -51,6 +51,16 @@ class Cloud:
     def get(self, table: str, **params: str) -> List[Dict[str, Any]]:
         return self._chk(requests.get(f"{self.base}/{table}", headers=self.h, params=params, timeout=30)).json()
 
+    def get_all(self, table: str, page: int = 1000, **params: str) -> List[Dict[str, Any]]:
+        """Every matching row. PostgREST/Supabase silently caps one response at 1000 rows, so page with offset (stable order by sid)."""
+        out: List[Dict[str, Any]] = []
+        for i in range(200):
+            part = self.get(table, **{**params, "limit": str(page), "offset": str(i * page), "order": params.get("order", "sid")})
+            out.extend(part)
+            if len(part) < page:
+                break
+        return out
+
     def upsert(self, table: str, rows: List[Dict[str, Any]], conflict: str, chunk: int = 200) -> None:
         for i in range(0, len(rows), chunk):
             h = {**self.h, "Prefer": "resolution=merge-duplicates,return=minimal"}
@@ -114,7 +124,7 @@ def _push_changed(c: Cloud, rows: List[Dict[str, Any]]) -> int:
 
 def _push_charts(c: Cloud, rows: List[Dict[str, Any]]) -> int:
     done = db.kv_get("chart_pushed") or {}
-    have = {r["sid"] for r in c.get("desk_charts", select="sid", limit="10000")}
+    have = {r["sid"] for r in c.get_all("desk_charts", select="sid")}
     board = (db.kv_get("last_scan") or {}).get("signal_date") or ""
     since = str((clock.now_utc() - timedelta(days=TRADE_CHART_DAYS)).date())
     closed = {r["sid"]: r["exit_date"] for r in db.q("SELECT s.signal_date || '|' || s.ticker AS sid, p.exit_date FROM positions p "
@@ -144,7 +154,7 @@ def _push_charts(c: Cloud, rows: List[Dict[str, Any]]) -> int:
 
 def _reconcile(c: Cloud, rows: List[Dict[str, Any]]) -> Dict[str, int]:
     since = str((clock.now_utc() - timedelta(days=KEEP_DAYS)).date())
-    cloud = {r["sid"]: r for r in c.get("desk_signals", signal_date=f"gte.{since}", limit="10000")}
+    cloud = {r["sid"]: r for r in c.get_all("desk_signals", signal_date=f"gte.{since}")}      # was capped at 1000 rows: later rows never reconciled (lost decisions)
     st = {"pulled": 0, "pushed": 0, "queued": 0, "unqueued": 0, "risk": 0, "watch": 0}
     for L in rows:
         C = cloud.get(sid_of(L))
@@ -280,7 +290,7 @@ def cycle(prune: bool = False) -> Dict[str, Any]:
     c, sess = Cloud(), clock.status()["session_date"]
     rules.roll_forward()
     rows = _sync_rows(sess)
-    have = {r["sid"]: r for r in c.get("desk_signals", select="sid", signal_date=f"gte.{str((clock.now_utc() - timedelta(days=KEEP_DAYS)).date())}", limit="10000")}
+    have = {r["sid"]: r for r in c.get_all("desk_signals", select="sid", signal_date=f"gte.{str((clock.now_utc() - timedelta(days=KEEP_DAYS)).date())}")}
     _insert_missing(c, rows, have)
     rec = _reconcile(c, rows)
     rows = _sync_rows(sess)                                    # re-read: reconcile may have changed local rows

@@ -52,6 +52,9 @@ strategy:                              # validated in research/dislocation_study
 watchlist:
   max_age_days: 45                    # unexecuted A/B/W setups roll to each new session (Watchlist tab) for this long
 
+bench:
+  start_equity: 100000.0               # account starting equity: model equity = this + all P&L since inception (Daily PnL + Benchmark portfolio column)
+
 risk:
   risk_pct: 0.01                       # 1% of equity risked per trade
   max_risk_pct_override: 0.02          # per-trade manual risk override cap (2% of equity)
