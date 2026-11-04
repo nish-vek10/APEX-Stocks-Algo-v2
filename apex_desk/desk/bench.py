@@ -22,8 +22,8 @@ from typing import Any, Dict, List, Optional
 import pandas as pd
 import requests
 
-import core.utils.trading_calendar as tc  # noqa: E402  (repo root is on sys.path via desk.settings)
-from desk import clock, db, engine, settings
+from desk import clock, db, engine, settings  # noqa: E402  (settings puts the repo root on sys.path)
+import core.utils.trading_calendar as tc  # noqa: E402
 
 log = logging.getLogger("desk.bench")
 
@@ -312,34 +312,52 @@ def check(days: int = 14) -> List[Dict[str, Any]]:
     if not configured():
         print("DESK_OANDA_TOKEN is not set")
         return []
-    j = _oanda(f"/v3/instruments/{_instrument()}/candles", granularity="D", price="M", count=days + 6, dailyAlignment=16, alignmentTimezone="America/New_York")
-    ohlc: Dict[str, Dict[str, float]] = {}
-    for c in j.get("candles", []):
-        if c.get("mid") and c.get("complete"):
-            d = str((pd.Timestamp(c["time"]).tz_convert(clock.ET) + pd.Timedelta(hours=12)).date())      # candle starts 16:00 ET the evening before
-            if tc.is_trading_day(d):
-                ohlc[d] = {k: float(c["mid"][k]) for k in "ohlc"}
+    def candles(align: int) -> Dict[str, Dict[str, Any]]:
+        j = _oanda(f"/v3/instruments/{_instrument()}/candles", granularity="D", price="M", count=days + 6, dailyAlignment=align, alignmentTimezone="America/New_York")
+        res: Dict[str, Dict[str, Any]] = {}
+        for c in j.get("candles", []):
+            if c.get("mid") and c.get("complete"):
+                st = pd.Timestamp(c["time"]).tz_convert(clock.ET)                      # candle starts at the alignment hour the evening before
+                d = str((st + pd.Timedelta(hours=12)).date())
+                if tc.is_trading_day(d):
+                    res[d] = {**{k: float(c["mid"][k]) for k in "ohlc"}, "start": st, "end": st + pd.Timedelta(days=1)}
+        return res
+
+    win = lambda o: f"{o['start']:%a %d-%m %H:%M} -> {o['end']:%a %d-%m %H:%M} ET ({o['start'].tz_convert('Europe/London'):%H:%M} -> {o['end'].tz_convert('Europe/London'):%H:%M} London)"   # noqa: E731
+    ohlc, tv = candles(16), candles(17)
     ds = sorted(ohlc)[-days:]
     spx = db.kv_get("spx_close") or {}                                          # exactly what the dashboard uses
     spy: Dict[str, float] = {}
+    spy_msg = ""
     try:
         from dotenv import load_dotenv
         load_dotenv(settings.REPO_ROOT / ".env")
         r = requests.get("https://api.twelvedata.com/time_series", params={"symbol": "SPY", "interval": "1day", "outputsize": days + 6, "apikey": os.environ.get("TWELVEDATA_API_KEY", "")}, timeout=30).json()
         spy = {v["datetime"][:10]: float(v["close"]) for v in r.get("values", [])}
+        spy_msg = "" if spy else f"SPY reference unavailable: {r.get('message') or 'no data (TWELVEDATA_API_KEY not found?)'}"
     except Exception as e:  # noqa: BLE001 - reference only
-        log.info("SPY reference unavailable: %s", e)
+        spy_msg = f"SPY reference unavailable: {e}"
     pct = lambda a, b: "" if not a or not b else f"{(a / b - 1) * 100:+.2f}%"          # noqa: E731
     out: List[Dict[str, Any]] = []
-    print(f"{'Date':<11}{'Stored close':>13}{'OANDA D open':>13}{'high':>10}{'low':>10}{'close':>10}{'Stored %':>10}{'OANDA D %':>10}{'SPY %':>9}  Flag")
+    print("\n[1] WHAT THE DASHBOARD USES: OANDA daily candle, day ends 16:00 ET (= US cash close). Compare with the stored close.")
+    print(f"{'Date':<11}{'Stored close':>13}{'D open':>10}{'high':>10}{'low':>10}{'D close':>10}{'Stored %':>10}{'D %':>8}{'SPY %':>8}  {'Flag':<8}Candle window")
     for d in ds:
         p = _prev_td(d)
         s, sp, o = spx.get(d), spx.get(p) if p else None, ohlc[d]
         po = ohlc.get(p) if p else None
-        spy_p = pct(spy.get(d), spy.get(p)) if p else ""
         flag = "MISSING" if s is None else ("DIFF" if abs(s - o["c"]) > max(2.0, o["c"] * 0.0005) else "ok")
-        print(f"{d:<11}{(f'{s:,.2f}' if s else '-'):>13}{o['o']:>13,.2f}{o['h']:>10,.2f}{o['l']:>10,.2f}{o['c']:>10,.2f}{pct(s, sp):>10}{pct(o['c'], po['c']) if po else '':>10}{spy_p:>9}  {flag}")
-        out.append({"date": d, "stored": s, **{f"d_{k}": v for k, v in o.items()}, "flag": flag})
+        print(f"{d:<11}{(f'{s:,.2f}' if s else '-'):>13}{o['o']:>10,.2f}{o['h']:>10,.2f}{o['l']:>10,.2f}{o['c']:>10,.2f}{pct(s, sp):>10}{pct(o['c'], po['c']) if po else '':>8}{(pct(spy.get(d), spy.get(p)) if p else ''):>8}  {flag:<8}{win(o)}")
+        out.append({"date": d, "stored": s, **{f"d_{k}": o[k] for k in "ohlc"}, "flag": flag})
+    print("\n[2] TRADINGVIEW STYLE: OANDA daily candle, day ends 17:00 ET (FX convention). This is the candle on a TradingView OANDA:SPX500USD daily chart.")
+    print(f"{'Date':<11}{'Open':>10}{'High':>10}{'Low':>10}{'Close':>10}{'Day %':>8}  Candle window")
+    for d in ds:
+        p = _prev_td(d)
+        o, po = tv.get(d), tv.get(p) if p else None
+        if o:
+            print(f"{d:<11}{o['o']:>10,.2f}{o['h']:>10,.2f}{o['l']:>10,.2f}{o['c']:>10,.2f}{pct(o['c'], po['c']) if po else '':>8}  {win(o)}")
+    print("\nWhy they differ: [1] cuts the day at 16:00 ET so the S&P % lines up with the US stocks; TradingView cuts at 17:00 ET, so its open and close are an hour later. High and low are almost the same.")
+    if spy_msg:
+        print(spy_msg)
     return out
 
 
