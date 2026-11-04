@@ -238,7 +238,7 @@ def _push_pnl(c: Cloud) -> int:
     if not rev or db.kv_get("pnl_pushed") == rev:
         return 0
     from desk import pnl
-    full = db.kv_get("pnl_full") != "v2"                                  # full history once (new columns), then only the last 7 days every minute
+    full = db.kv_get("pnl_full") != "ok"                                  # full history once (new columns), then only the last 7 days every minute
     since = "0000-00-00" if full else str((clock.now_utc() - timedelta(days=7)).date())
     pos, day = pnl.per_position(since), pnl.daily(since)
     if pos:
@@ -246,7 +246,7 @@ def _push_pnl(c: Cloud) -> int:
     if day:
         c.upsert("desk_pnl_daily", day, "date", chunk=500)
     if full:
-        db.kv_set("pnl_full", "v2")
+        db.kv_set("pnl_full", "ok")
     db.kv_set("pnl_pushed", rev)
     return len(pos)
 
@@ -257,7 +257,7 @@ def _push_bench(c: Cloud) -> int:
     if not rev or db.kv_get("bench_pushed") == rev:
         return 0
     from desk import bench
-    full = db.kv_get("bench_full") != "v1"
+    full = db.kv_get("bench_full") != "ok"
     since = "0000-00-00" if full else str((clock.now_utc() - timedelta(days=7)).date())
     day = [r for r in bench.daily() if r["date"] >= since]
     stk = [r for r in bench.stocks() if r["date"] >= since]
@@ -266,7 +266,7 @@ def _push_bench(c: Cloud) -> int:
     if stk:
         c.upsert("desk_bench_stock", stk, "date,ticker", chunk=500)
     if full:
-        db.kv_set("bench_full", "v1")
+        db.kv_set("bench_full", "ok")
     db.kv_set("bench_pushed", rev)
     return len(stk)
 

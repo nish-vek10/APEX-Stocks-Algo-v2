@@ -24,7 +24,8 @@ Deploy flow: Main PC `git add apex_desk` / commit / `git push origin main`; Work
 | 17:20 to 09:30 -60 min | Review window (cut-off 12:30 London now; 13:30 London in summer) |
 | 09:31 | `job_execute`: confirmed trades, retry for no-quote symbols (30 s for 5 min, then 120 s until open + 30 min) |
 | every 30 min | snapshot (equity, reconcile broker-closed positions, broker trade-mode check) |
-| every 60 s | sync to Supabase |
+| every minute (:00) | live snapshot: MT5 account (Equity card), Live PnL, benchmark live row (09:30-16:00 ET) |
+| every minute (:20) | sync to Supabase |
 
 ## 3. Strategy rules (locked, from research/dislocation_study steps 08-11)
 Tiers: **A** core breakout (>=25% below EMA200, Stage 2 within 40 bars, risk x1), **B** extended breakout (>=15% below, within 60 bars, x0.5), **W** warming up (near-breakout, EMA20/EMA50 reclaim, >=25% below, avg $ volume >= 500k, x0.5), **C** info only (can be starred to trade at 0.5%). Stop = entry - max(3.5 x ATR14, 0.5%). Risk 1% x tier multiple, per-trade override up to 2%. Max 75 positions, max 3 per ticker, position value <= 20% of equity, gross <= 5x equity, **no minimum price** (changed 27-10; was $2, the research stats used the $2 floor). Broker volume cap: order sent at the cap, risks less. Exits: Stage 9 (close < EMA10) at the next open, native broker stop, 365-day time stop.

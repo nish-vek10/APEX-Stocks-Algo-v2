@@ -150,7 +150,11 @@ def main() -> None:
     sched.add_job(job_snapshot, "interval", minutes=int(t["snapshot_every_min"]), id="snapshot")
     from desk import sync
     if sync.enabled():
-        sched.add_job(job_sync, "interval", seconds=int(settings.cfg().get("sync", {}).get("interval_sec", 60)), id="sync", max_instances=1, coalesce=True)
+        every = int(settings.cfg().get("sync", {}).get("interval_sec", 60))
+        if every == 60:                                           # once a minute at :20, right after the :00 live snapshot, so the dashboard is at most ~1 minute behind
+            sched.add_job(job_sync, "cron", second=20, id="sync", max_instances=1, coalesce=True)
+        else:
+            sched.add_job(job_sync, "interval", seconds=every, id="sync", max_instances=1, coalesce=True)
     log.info("Desk scheduler up | mode=%s | scan %02d:%02d ET | execute %02d:%02d ET", settings.cfg()["mode"], sh, sm, eh, em)
     print(f"[desk-scheduler] mode={settings.cfg()['mode']} scan={sh:02d}:{sm:02d} ET execute={eh:02d}:{em:02d} ET (Ctrl+C to stop)")
     sched.start()

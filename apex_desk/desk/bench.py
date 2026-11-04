@@ -221,6 +221,7 @@ def rebuild(refresh_index: bool = False) -> Dict[str, Any]:
     for d in cal:
         _write_day(d, spx, 0, eqs=eqs)
     db.kv_set("bench_rev", db.now_iso())
+    db.kv_set("bench_full", None)                                           # history may have changed: push every row once on the next sync
     n = db.one("SELECT COUNT(*) n FROM bench_daily")["n"]
     log.info("Benchmark rebuilt: %d days, index %s", n, "OANDA" if configured() else "NOT configured (no DESK_OANDA_TOKEN)")
     return {"days": n, "latest": last, "index": configured()}
@@ -242,15 +243,19 @@ def live() -> Dict[str, Any]:
     if not pos or not MT5_LOCK.acquire(blocking=False):
         return {"skipped": "no positions or MT5 busy"}
     px_now: Dict[str, float] = {}
+    rows: List[tuple] = []
     try:
         ex = Executor()
         ex.broker.connect()
         try:
+            try:
+                ex.snapshot()                                                  # MT5 account snapshot every minute: the Equity card (equity, balance, time)
+            except Exception as e:  # noqa: BLE001
+                log.warning("MT5 account snapshot failed: %s", e)
             held: Dict[str, Dict[str, Any]] = {}
             for p in pos:
                 h = held.setdefault(p["ticker"], {"w": 0.0, "sym": p["broker_symbol"]})
                 h["w"] = max(h["w"], _mult(p["tier"]))
-            rows = []
             for t, h in held.items():
                 df = engine._read(t)
                 if df is None:
@@ -266,6 +271,13 @@ def live() -> Dict[str, Any]:
             ex.broker.disconnect()
     finally:
         MT5_LOCK.release()
+    for p in _holdings():                                                    # stocks exited today (stop / Stage 9 at the open) stay in today's basket at their exit price
+        if p["status"] == "closed" and p["exit_date"] == today and p["exit_price"] and p["ticker"] not in {r[1] for r in rows}:
+            df = engine._read(p["ticker"])
+            before = df[df["date"].dt.strftime("%Y-%m-%d") < today] if df is not None else None
+            if before is not None and not before.empty:
+                prev = float(before["close"].iloc[-1])
+                rows.append((today, p["ticker"], prev, float(p["exit_price"]), float(p["exit_price"]) / prev - 1, _mult(p["tier"])))
     with db._LOCK:
         cx = db.conn()
         cx.execute("DELETE FROM bench_stock WHERE date=?", (today,))

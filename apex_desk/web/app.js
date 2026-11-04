@@ -113,7 +113,8 @@ function renderKpis() {
     ["Equity", usd(s.equity), s.executor ? `${String(s.executor.broker).toUpperCase()} snapshot at ${s.executor.ts.slice(11, 16)} UTC` : "No broker snapshot yet", "", null],
   ];
   const d0 = (state.pnlDaily || [])[0];                                          // newest close-of-business snapshot
-  k.push(d0 ? ["Live PnL &rsaquo;", sgn(d0.pnl), `<b>${dmy(d0.date)}</b>` + (d0.equity != null ? `<br><b>EQUITY ${usd(d0.equity)}</b>` : ""), d0.pnl >= 0 ? "ok" : "bad", null, "pnl"]
+  const snapAt = s.executor ? `MT5 snapshot at ${s.executor.ts.slice(11, 16)} UTC` : "No MT5 snapshot yet";                         // same wording and source as the Equity card
+  k.push(d0 ? ["Live PnL &rsaquo;", sgn(d0.pnl), d0.live ? snapAt : `Close of ${dmy(d0.date)}`, d0.pnl >= 0 ? "ok" : "bad", null, "pnl"]
             : ["Live PnL &rsaquo;", "-", "First snapshot after the next close", "", null, "pnl"]);
   setHtml($("#kpis"), k.map(([t, v, sub, cls, bar, id]) => `<div class="kpi ${cls}${id ? " clk" : ""}"${id ? ` data-k="${id}" title="Click for every day"` : ""}><small>${t}</small><b>${v}</b><em>${sub}</em>${bar == null ? "" : `<div class="bar"><i style="width:${bar}%"></i></div>`}</div>`).join(""));
 }
@@ -344,7 +345,7 @@ async function loadTab(tab) {
       ["Last close", r => (by[r.id] || [])[0] ? fmt(by[r.id][0].close, 2) : ""], ["P&L $", r => (by[r.id] || [])[0] ? pnlCell(by[r.id][0].pnl) : ""]];
     const deck = r => { const ds = by[r.id] || [];
       return `<tr class="deckrow"><td colspan="${cols.length}"><div class="decks-h"><b>${r.ticker}</b> · entered ${fmtDate(r.entry_date)} at ${fmt(r.entry_price, 4)} · ${ds.length} day${ds.length === 1 ? "" : "s"}</div><div class="decks">${ds.map(d =>
-        `<div class="deck ${d.pnl >= 0 ? "up" : "dn"}"><small>${fmtDate(d.date)}${d.status === "exit" ? " · EXIT" : ""}</small><span>Close <b>${fmt(d.close, 2)}</b></span><em>${pnlCell(d.pnl)}</em></div>`).join("") || `<div class="muted">No close recorded yet. The first deck appears after the next US close.</div>`}</div></td></tr>`; };
+        `<div class="deck ${d.pnl >= 0 ? "up" : "dn"}"><small>${fmtDate(d.date)}${d.status === "exit" ? " · EXIT" : d.status === "live" ? " · LIVE" : ""}</small><span>Close <b>${fmt(d.close, 2)}</b></span><em>${pnlCell(d.pnl)}</em></div>`).join("") || `<div class="muted">No close recorded yet. The first deck appears after the next US close.</div>`}</div></td></tr>`; };
     setHtml($("#tblPos"), `<thead><tr>${cols.map(c => `<th>${c[0]}</th>`).join("")}</tr></thead><tbody>${p.map(r => `<tr class="${tierCls(r)} clk" data-pid="${r.id}">${cols.map(c => `<td>${c[1](r) ?? ""}</td>`).join("")}</tr>${state.openPos.has(r.id) ? deck(r) : ""}`).join("") || `<tr><td colspan="${cols.length}" class="muted">Nothing to show yet.</td></tr>`}</tbody>`);
   }
   if (tab === "history") { const h = sortBy(await api("/api/history"), "-signal_date", "-entry_date", "ticker"); T($("#tblHist"), [["Signal date", r => fmtDate(r.signal_date)], ["Target session", r => fmtDate(r.entry_date)], ["Tier", r => `<span class="badge b-${r.tier}">${r.tier}</span>${r.watch ? ' <span class="badge b-star">&#9733;</span>' : ""}`], ["Ticker", r => `<b>${r.ticker}</b>`], ["Setup", r => r.setup], ["vs EMA200", r => pct(r.dist200)], ["Stage-2 age", r => r.days_since_s2], ["Decision", r => r.decision], ["Previous decision", r => r.last_decision && r.last_decision !== "none" ? `${r.last_decision} (${dmy(r.last_decision_date)})` : ""], ["Risk %", r => r.risk_pct ? (r.risk_pct * 100).toFixed(2) : ""], ["By", r => r.decided_by || ""], ["Execution", r => r.exec_status]], h, tierCls); }
@@ -361,8 +362,8 @@ async function loadBench() {
   Object.assign(bench, {rows: daily, tickers, by});
   const done = daily.filter(r => !r.live), ex = (r, k) => r[k] == null || r.spx_pct == null ? null : r[k] - r.spx_pct;
   const beat = (k) => { const x = done.filter(r => ex(r, k) != null); return x.length ? `${x.filter(r => ex(r, k) > 0).length} of ${x.length} days` : "-"; };
-  const lastEq = daily.find(r => r.equity != null), firstEq = [...daily].reverse().find(r => r.equity_prev != null);          // latest equity (live row included) vs the start
-  const eqChg = lastEq && firstEq && firstEq.equity_prev ? lastEq.equity / firstEq.equity_prev - 1 : null, eqSub = lastEq && firstEq ? `equity ${usd(lastEq.equity)} vs ${usd(firstEq.equity_prev)} start${lastEq.live ? " (live)" : ""}` : "equity change since the start";
+  const lastEq = daily.find(r => r.equity != null), firstEq = daily.length ? daily[daily.length - 1] : null;          // latest equity (live row included) vs the start = the oldest row's previous equity
+  const eqOk = lastEq && firstEq && firstEq.equity_prev, eqChg = eqOk ? lastEq.equity / firstEq.equity_prev - 1 : null, eqSub = eqOk ? `equity ${usd(lastEq.equity)} vs ${usd(firstEq.equity_prev)} start${lastEq.live ? " (live)" : ""}` : "waiting for the first full history sync";
   const card = (t, v, sub) => `<div class="kpi"><small>${t}</small><b>${v || "-"}</b><em>${sub}</em></div>`;
   setHtml($("#benchSum"), card("S&amp;P 500", bpct(compound(done, "spx_pct")), "compounded, completed days") + card("Equal weight", bpct(compound(done, "ew_pct")), `beat S&amp;P on ${beat("ew_pct")}`) +
     card("Risk weighted", bpct(compound(done, "w_pct")), `beat S&amp;P on ${beat("w_pct")}`) + card("Portfolio", bpct(eqChg), eqSub));
@@ -374,7 +375,7 @@ async function loadBench() {
   const live = daily.find(r => r.live);
   const ln = t => `<div>${t}</div>`;
   setHtml($("#benchNote"), ln(`<b>Day %</b> = close vs previous close, price only. <b>EW vs S&amp;P</b> = Equal weight minus S&amp;P 500. <b>WTD vs S&amp;P</b> = Risk weighted minus S&amp;P 500 (percentage points ahead of or behind the index; positive = we beat it).`) +
-    ln(`<b>Portfolio</b> = change in portfolio equity (100,000 start + all P&amp;L since inception) vs the previous close; the same equity is on the Live PnL card.`) +
+    ln(`<b>Portfolio</b> = change in portfolio equity (100,000 start + all P&amp;L since inception) vs the previous close; the Live PnL card shows the same P&amp;L.`) +
     (live ? ln(`<span class="b-livenote">Live row refreshes every minute (last ${String(live.updated_at || "").slice(11, 16)} UTC); completed days use the official close.</span>`) : ""));
 }
 $("#benchCsv").onclick = () => {

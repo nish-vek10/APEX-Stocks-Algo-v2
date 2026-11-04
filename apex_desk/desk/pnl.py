@@ -156,6 +156,7 @@ def rebuild() -> Dict[str, Any]:
         cx.commit()
     n = db.one("SELECT COUNT(*) AS n FROM pnl_daily")["n"]
     db.kv_set("pnl_rev", db.now_iso())
+    db.kv_set("pnl_full", None)                                             # history may have changed: push every row once on the next sync
     log.info("PnL snapshot: %d position-days written, %d portfolio days", len(rows), n)
     return {"positions": len(pos), "rows": len(rows), "days": n, "latest": last}
 
