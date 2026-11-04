@@ -12,7 +12,7 @@ from desk import settings
 
 def main() -> None:
     ap = argparse.ArgumentParser(prog="desk")
-    ap.add_argument("cmd", choices=["serve", "scan", "execute", "snapshot", "scheduler", "status", "sync", "requeue", "force-queue", "pnl"])
+    ap.add_argument("cmd", choices=["serve", "scan", "execute", "snapshot", "scheduler", "status", "sync", "requeue", "force-queue", "pnl", "bench"])
     ap.add_argument("tickers", nargs="*", help="force-queue: tickers to queue for today's open, e.g. CCB")
     ap.add_argument("--risk", type=float, default=None, help="force-queue: risk %% of equity override, e.g. 0.5")
     ap.add_argument("--host", default="127.0.0.1")
@@ -21,6 +21,7 @@ def main() -> None:
     ap.add_argument("--asof", default=None, help="scan: replay a past date (demo/testing), e.g. 2026-04-07")
     ap.add_argument("--allow-stale", action="store_true", help="scan: accept an old cache (testing only)")
     ap.add_argument("--loop", action="store_true", help="sync: run continuously")
+    ap.add_argument("--live", action="store_true", help="bench: run one live 5-minute update instead of the daily rebuild")
     ap.add_argument("--as-session", action="store_true", help="scan: TEST ONLY, relabel stale signals as today's session")
     ap.add_argument("--force", action="store_true", help="execute: run even on a non-trading day / outside the open")
     a = ap.parse_args()
@@ -37,6 +38,9 @@ def main() -> None:
     elif a.cmd == "execute":
         from desk.executor import Executor
         print(json.dumps(Executor().run_session(force=a.force), indent=2, default=str))
+    elif a.cmd == "bench":
+        from desk import bench
+        print(json.dumps(bench.live() if a.live else bench.rebuild(), indent=2, default=str))
     elif a.cmd == "pnl":
         from desk import pnl
         print(json.dumps(pnl.rebuild(), indent=2, default=str))

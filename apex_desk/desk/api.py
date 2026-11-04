@@ -211,6 +211,19 @@ def pnl_positions() -> Any:
     return pnl.per_position()
 
 
+@app.get("/api/bench/daily")
+def bench_daily() -> Any:
+    """S&P 500 vs equal-weight / risk-weighted stock basket / account equity, per day (price only)."""
+    from desk import bench
+    return bench.daily()
+
+
+@app.get("/api/bench/stocks")
+def bench_stocks() -> Any:
+    from desk import bench
+    return bench.stocks()
+
+
 @app.get("/api/executions")
 def executions(limit: int = Query(100, le=500)) -> Any:
     return db.q("SELECT * FROM executions ORDER BY id DESC LIMIT ?", (limit,))

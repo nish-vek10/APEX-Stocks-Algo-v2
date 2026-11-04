@@ -90,6 +90,15 @@ async function api(path, opt) {
     }
     return out;
   }
+  if (p === "/api/bench/daily") return ok(await sb.from("desk_bench_daily").select("*").order("date", {ascending: false}).limit(1000));
+  if (p === "/api/bench/stocks") {
+    const out = [];
+    for (let i = 0; i < 40; i++) {
+      const part = ok(await sb.from("desk_bench_stock").select("*").order("date", {ascending: false}).order("ticker").range(i * 1000, i * 1000 + 999));
+      out.push(...part); if (part.length < 1000) break;
+    }
+    return out;
+  }
   if (p === "/api/trades") {                                                    // executed + failed entries joined to their position (fill / stop / exit)
     const since = new Date(Date.now() - 90 * 864e5).toISOString().slice(0, 10);
     const sg = ok(await sb.from("desk_signals").select("sid,signal_date,entry_date,ticker,tier,setup,exec_status,exec_detail,watch,sig_close,stop_price,risk_pct,est_shares,est_risk").in("exec_status", ["executed", "failed"]).gte("entry_date", since).order("entry_date", {ascending: false}).limit(1000));

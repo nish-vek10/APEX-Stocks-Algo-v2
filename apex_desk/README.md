@@ -131,6 +131,14 @@ Lightweight Charts from the same data the algo used, so what you see is exactly 
 - Cloud: tables `desk_pnl_daily`, `desk_pnl_pos` (run `docs/supabase_migration_v5.sql` **before** the Work PC pulls). Sync pushes them whenever a new snapshot exists.
 - Config: `timing.pnl_time_et` in `conf/desk.yaml` (default 17:10).
 
+## Benchmark tab (v7): do our stocks beat the S&P 500?
+- **Price only, no sizing / P&L.** Day % = close vs the **previous close** (the overnight gap is included), for the S&P 500 and for every stock held that day. A stock counts from its entry date to its exit date (exit day uses the exit price); a ticker entered twice counts once, at its highest multiple.
+- Columns: **S&P 500** | **Portfolio equity** (account equity now vs equity at the previous close: sizing, costs and realised results included) | **Equal weight** (average of the held stocks' day %, 1/N each) | **Risk weighted** (weights follow the tier risk multiple: A 1.0, B / W / starred C 0.5, normalised to 100%) | excess vs S&P for both baskets | stock count | one column per ticker (A-Z, blank when not held). Rows newest first. Summary cards: compounded S&P / equal / weighted / equity return and the number of days each basket beat the S&P.
+- **Live**: the latest row is tagged LIVE and refreshes every 5 minutes in market hours (`job_bench_live`): MT5 prices for the held stocks and account equity, OANDA for the index, all vs the previous close. After the close the official closes replace it (17:10 ET `job_pnl` rebuild; also at scheduler start = backfill).
+- **S&P 500 source: OANDA `SPX500_USD`, 5-minute candles.** The official daily close = the close of the 15:55 ET candle (the 16:00 ET cash close), so day % matches the US cash session. Needs `DESK_OANDA_TOKEN` (and `DESK_OANDA_ENV=practice|live`, must match the token; optional `DESK_OANDA_INSTRUMENT`) in `apex_desk/.env` on the Work PC. Without a token the stock and equity columns still work and the S&P column is blank.
+- Equity history starts at the first close recorded after deployment (no past equity is stored), so Portfolio equity fills from then on.
+- Tables `bench_daily`, `bench_stock` (SQLite) and `desk_bench_daily`, `desk_bench_stock` (Supabase; run `docs/supabase_migration_v6.sql` first). API `/api/bench/daily`, `/api/bench/stocks`. CLI `python -m desk bench` (rebuild) / `python -m desk bench --live`. Test `python tests\bench_test.py`. CSV download button on the tab.
+
 ## Cloud architecture (live)
 ```
 Work PC (MT5 + data cache)                    Supabase (project apexstocks-desk)             Netlify (apexstocks-desk.netlify.app)
@@ -146,7 +154,7 @@ Work PC (MT5 + data cache)                    Supabase (project apexstocks-desk)
 
 ## Environment (`apex_desk/.env`, never committed)
 `DESK_MT5_LOGIN / PASSWORD / SERVER / TERMINAL_PATH` (new demo account, portable terminal e.g. `C:\MT5_DESK\terminal64.exe`) |
-`DESK_SUPABASE_URL`, `DESK_SUPABASE_SERVICE_KEY` (secret, Work PC only) | `DESK_MODE=dry_run|live` and `DESK_SYNC_ENABLED=true`
+`DESK_SUPABASE_URL`, `DESK_SUPABASE_SERVICE_KEY` (secret, Work PC only), `DESK_OANDA_TOKEN` + `DESK_OANDA_ENV=practice|live` (secret, Benchmark tab S&P 500) | `DESK_MODE=dry_run|live` and `DESK_SYNC_ENABLED=true`
 override `conf/desk.yaml`, so `git pull` never conflicts | optional `TELEGRAM_*` (leave blank to keep alerts apart from the old system).
 
 ## Work PC runbook (runs beside the old scheduler, which is never touched)

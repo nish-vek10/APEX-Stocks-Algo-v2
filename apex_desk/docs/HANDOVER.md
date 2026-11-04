@@ -34,6 +34,8 @@ Signals (latest batch) | Watchlist (older unexecuted setups, last decision tag, 
 
 **Daily PnL (added 30-10-2026):** KPI card 7 + modal of all close-of-business days; Positions rows expand into per-day decks (close, running P&L). `desk/pnl.py` snapshots daily at 17:10 ET (also after each scan and at scheduler start), backfills history on first run, idempotent. Supabase `desk_pnl_daily` / `desk_pnl_pos` (`supabase_migration_v5.sql`). CLI `python -m desk pnl`; test `tests/pnl_test.py`.
 
+**Benchmark tab (added 04-11-2026):** S&P 500 vs the stocks we hold, price only (day % vs previous close): S&P, account equity, equal-weight and risk-weighted baskets, per-ticker columns, live row every 5 min. `desk/bench.py`; index from OANDA `SPX500_USD` M5 (cash close = 15:55 ET candle), needs `DESK_OANDA_TOKEN` / `DESK_OANDA_ENV` in `.env`. Supabase `desk_bench_daily` / `desk_bench_stock` (`supabase_migration_v6.sql`). CLI `python -m desk bench [--live]`, test `tests/bench_test.py`.
+
 ## 5. Execution details
 - MT5 comment: entry `DESK_<tier>-<signal id>` (e.g. `DESK_W-4567`), exit `DESK_EXIT_<tier>-<signal id>`. Magic number 20261001 (separate from old system).
 - Symbol: map `config/mt5_symbol_map.yaml` first, auto-resolve unmapped tickers; per attempt tries all variants (`.NAS-24`, `.NYSE-24`, `.NAS`, `.NYSE`) and uses the first that is open to buy and has a live quote.
@@ -45,7 +47,7 @@ Signals (latest batch) | Watchlist (older unexecuted setups, last decision tag, 
 `force-queue` is a manual override for missed windows (audit-logged, market hours only). `DESK_FAKE_NOW=<ISO UTC>` freezes the clock for tests. Smoke test: `python tests\smoke_test.py`.
 
 ## 7. Supabase migrations (run in the SQL editor, in order, all idempotent)
-`docs/supabase_schema.sql` (base) then `supabase_migration_v2.sql` (3 blocks), `supabase_migration_v3.sql` (`desk_positions.tier`, `desk_signals.broker_mode`), `supabase_migration_v4.sql` (`desk_positions.sid`), `supabase_migration_v5.sql` (`desk_pnl_daily`, `desk_pnl_pos`). Confirm v4 was run before relying on the Executed tab in the cloud view.
+`docs/supabase_schema.sql` (base) then `supabase_migration_v2.sql` (3 blocks), `supabase_migration_v3.sql` (`desk_positions.tier`, `desk_signals.broker_mode`), `supabase_migration_v4.sql` (`desk_positions.sid`), `supabase_migration_v5.sql` (`desk_pnl_daily`, `desk_pnl_pos`), `supabase_migration_v6.sql` (`desk_bench_daily`, `desk_bench_stock`). Confirm v4 was run before relying on the Executed tab in the cloud view.
 
 ## 8. Current state (27-10-2026)
 Open on the demo account: TREE, FISV (27-10), HTZ (27-10, manual, 0.5%) plus 9 earlier positions (FLO, ROL, DKS, PRCT, PODD, NKE, Z, FIS, TREE from 23-10). KRMN, UTI, TPB did not fill (no quote on `.NYSE-24`; the variant fallback was added afterwards and is untested live). CCB blocked (close-only).

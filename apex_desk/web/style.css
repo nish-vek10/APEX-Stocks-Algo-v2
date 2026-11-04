@@ -207,6 +207,11 @@ td .tg{margin-right:9px}
 .modal{position:fixed;inset:0;background:rgba(2,5,10,.6);backdrop-filter:blur(8px);display:flex;align-items:center;justify-content:center;z-index:60}
 .modal-card{background:var(--glass),rgba(14,22,40,.78);backdrop-filter:blur(22px) saturate(160%);border:1px solid var(--line2);border-radius:20px;padding:24px 28px;width:min(640px,92vw);max-height:86vh;overflow:auto;box-shadow:0 24px 70px rgba(0,0,0,.6),inset 0 1px 0 rgba(255,255,255,.1)}
 .modal-card.wide{width:min(900px,94vw)}.pnl-scroll{max-height:62vh;overflow:auto}.pnl-scroll table{width:100%;border-collapse:collapse}.pnl-scroll th{position:sticky;top:0;background:rgba(14,22,40,.96);text-align:left;font-size:11px;letter-spacing:.08em;color:var(--mut);padding:8px 10px}.pnl-scroll td{padding:8px 10px;border-top:1px solid var(--line)}
+.bsum{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:11px;margin-bottom:12px}.bsum .kpi{padding:13px 15px}
+.bhead{display:flex;justify-content:space-between;align-items:center;margin:0 2px 8px;font-size:12px}.bscroll{overflow:auto;max-height:68vh}.bscroll table{width:max-content;min-width:100%}
+.bscroll th.stk,.bscroll td.stk{position:sticky;background:rgba(14,22,40,.97);z-index:2}.bscroll th.stk:nth-child(1),.bscroll td.stk:nth-child(1){left:0;min-width:150px}.bscroll th.stk:nth-child(2),.bscroll td.stk:nth-child(2){left:150px}
+.bscroll thead th{position:sticky;top:0;z-index:3;background:rgba(14,22,40,.98)}.bscroll thead th.stk{z-index:4}.bscroll tr.live td{background:rgba(120,140,255,.08)}
+.badge.b-live{background:#ff5d7326;color:var(--bad);border:1px solid #ff5d7355;font-size:9px;padding:1px 6px;border-radius:7px;letter-spacing:.08em}
 tr.clk{cursor:pointer}tr.clk:hover td{background:rgba(255,255,255,.035)}.chev{display:inline-block;width:14px;color:var(--mut);font-size:11px}
 tr.deckrow>td{background:rgba(255,255,255,.02);padding:12px 16px 16px}.decks-h{font-size:12px;color:var(--mut);margin-bottom:10px}.decks-h b{color:var(--txt,#e6ebf5)}
 .decks{display:grid;grid-template-columns:repeat(auto-fill,minmax(138px,1fr));gap:10px;max-height:300px;overflow:auto;padding-right:4px}

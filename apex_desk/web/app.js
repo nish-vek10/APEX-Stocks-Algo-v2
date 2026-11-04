@@ -327,6 +327,7 @@ const holdDays = r => r.exit_date && r.entry_date ? Math.round((new Date(r.exit_
 const sortBy = (rows, ...keys) => [...(rows || [])].sort((a, b) => { for (const key of keys) { const d = key[0] === "-" ? -1 : 1, k = d < 0 ? key.slice(1) : key, x = a[k] ?? "", y = b[k] ?? ""; if (x < y) return -d; if (x > y) return d; } return 0; });   // ascending by default; "-key" = descending
 async function loadTab(tab) {
   if (tab === "exec") { await loadExec(); return; }
+  if (tab === "bench") { try { await loadBench(); } catch (e) { setHtml($("#benchSum"), ""); setHtml($("#tblBench"), `<tbody><tr><td class="muted">Benchmark data is not available yet (${e.message}).</td></tr></tbody>`); } return; }
   if (tab === "closed") {
     const c = sortBy(await api("/api/positions?status=closed"), "-exit_date", "-entry_date", "ticker");
     T($("#tblClosed"), [["Ticker", tkCell], ["Symbol", r => r.broker_symbol], ["Ticket", r => r.ticket], ["Entry date", r => fmtDate(r.entry_date)], ["Exit date", r => fmtDate(r.exit_date)], ["Days held", holdDays], ["Entry", r => fmt(r.entry_price, 4)], ["Exit", r => fmt(r.exit_price, 4)], ["Shares", r => fmt(r.shares, 0)], ["Exit reason", r => (r.exit_reason || "").replace(/_/g, " ")], ["P&L $", r => pnlCell(r.pnl_total)], ["R", r => r.pnl_r == null ? "" : `<span style="color:var(--${r.pnl_r >= 0 ? "ok" : "bad"})">${r.pnl_r >= 0 ? "+" : ""}${r.pnl_r.toFixed(2)}R</span>`]], c, tierCls);
@@ -346,6 +347,32 @@ async function loadTab(tab) {
   if (tab === "history") { const h = sortBy(await api("/api/history"), "-signal_date", "-entry_date", "ticker"); T($("#tblHist"), [["Signal date", r => fmtDate(r.signal_date)], ["Target session", r => fmtDate(r.entry_date)], ["Tier", r => `<span class="badge b-${r.tier}">${r.tier}</span>${r.watch ? ' <span class="badge b-star">&#9733;</span>' : ""}`], ["Ticker", r => `<b>${r.ticker}</b>`], ["Setup", r => r.setup], ["vs EMA200", r => pct(r.dist200)], ["Stage-2 age", r => r.days_since_s2], ["Decision", r => r.decision], ["Previous decision", r => r.last_decision && r.last_decision !== "none" ? `${r.last_decision} (${dmy(r.last_decision_date)})` : ""], ["Risk %", r => r.risk_pct ? (r.risk_pct * 100).toFixed(2) : ""], ["By", r => r.decided_by || ""], ["Execution", r => r.exec_status]], h, tierCls); }
   if (tab === "audit") { const a = sortBy(await api("/api/audit"), "-ts", "action", "-id"); T($("#tblAudit"), [["Time (UTC)", r => fmtTs(r.ts)], ["Actor", r => r.actor], ["Action", r => r.action], ["Detail", r => (r.detail || "").slice(0, 160)]], a); }
 }
+// ---------- Benchmark tab: S&P 500 vs the stocks we hold (price only, day % vs the previous close) ----------
+const bpct = v => v == null ? "" : `<span style="color:var(--${v >= 0 ? "ok" : "bad"})">${v >= 0 ? "+" : ""}${(v * 100).toFixed(2)}%</span>`;
+const bench = {rows: [], tickers: [], by: {}};
+const compound = (rows, k) => rows.reduce((a, r) => r[k] == null ? a : a * (1 + r[k]), 1) - 1;
+async function loadBench() {
+  const [d, s] = await Promise.all([api("/api/bench/daily"), api("/api/bench/stocks")]);
+  const daily = sortBy(d, "-date"), by = {}; s.forEach(r => by[r.date + "|" + r.ticker] = r);
+  const tickers = [...new Set(s.map(r => r.ticker))].sort();
+  Object.assign(bench, {rows: daily, tickers, by});
+  const done = daily.filter(r => !r.live), ex = (r, k) => r[k] == null || r.spx_pct == null ? null : r[k] - r.spx_pct;
+  const beat = (k) => { const x = done.filter(r => ex(r, k) != null); return x.length ? `${x.filter(r => ex(r, k) > 0).length} of ${x.length} days` : "-"; };
+  const card = (t, v, sub) => `<div class="kpi"><small>${t}</small><b>${v}</b><em>${sub}</em></div>`;
+  setHtml($("#benchSum"), card("S&amp;P 500", bpct(compound(done, "spx_pct")), "compounded, completed days") + card("Equal weight", bpct(compound(done, "ew_pct")), `beat S&amp;P on ${beat("ew_pct")}`) +
+    card("Risk weighted", bpct(compound(done, "w_pct")), `beat S&amp;P on ${beat("w_pct")}`) + card("Account equity", bpct(compound(done, "port_pct")), "from the first recorded close"));
+  const cols = [["Date", r => `<b>${dmy(r.date)}</b>${r.live ? ' <span class="badge b-live">LIVE</span>' : ""}`], ["S&amp;P 500", r => bpct(r.spx_pct)], ["Portfolio equity", r => bpct(r.port_pct)], ["Equal weight", r => bpct(r.ew_pct)],
+    ["Risk weighted", r => bpct(r.w_pct)], ["EW vs S&amp;P", r => bpct(ex(r, "ew_pct"))], ["Wtd vs S&amp;P", r => bpct(ex(r, "w_pct"))], ["Stocks", r => r.n_stocks || ""],
+    ...tickers.map(t => [t, r => { const x = by[r.date + "|" + t]; return x ? bpct(x.pct) : ""; }])];
+  setHtml($("#tblBench"), `<thead><tr>${cols.map((c, i) => `<th${i < 2 ? ' class="stk"' : ""}>${c[0]}</th>`).join("")}</tr></thead><tbody>${daily.map(r => `<tr class="${r.live ? "live" : ""}">${cols.map((c, i) => `<td${i < 2 ? ' class="stk"' : ""}>${c[1](r)}</td>`).join("")}</tr>`).join("") || `<tr><td colspan="8" class="muted">No data yet. The first rows appear after the next snapshot.</td></tr>`}</tbody>`);
+  const live = daily.find(r => r.live);
+  $("#benchNote").textContent = live ? `Live row updates every 5 minutes (last ${String(live.updated_at || "").slice(11, 16)} UTC). Completed days use the official close.` : "Day % = close vs previous close, price only. Completed days use the official close.";
+}
+$("#benchCsv").onclick = () => {
+  const head = ["Date", "SPX", "Portfolio equity", "Equal weight", "Risk weighted", ...bench.tickers], f = v => v == null ? "" : (v * 100).toFixed(2);
+  const lines = [head.join(",")].concat(bench.rows.map(r => [r.date, f(r.spx_pct), f(r.port_pct), f(r.ew_pct), f(r.w_pct), ...bench.tickers.map(t => { const x = bench.by[r.date + "|" + t]; return x ? f(x.pct) : ""; })].join(",")));
+  const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([lines.join("\n")], {type: "text/csv"})); a.download = "apex_benchmark.csv"; a.click();
+};
 state.openPos = new Set();                                                       // expanded Positions rows (survive the 15 s refresh)
 $("#tblPos").onclick = e => { const tr = e.target.closest("tr[data-pid]"); if (!tr) return; const id = Number(tr.dataset.pid); state.openPos.has(id) ? state.openPos.delete(id) : state.openPos.add(id); loadTab("positions"); };
 // ---------- Executed tab: every entry the executor filled or failed, per session, with entry / stop / exit drawn on the chart ----------
@@ -445,7 +472,7 @@ async function loadExecInner() {
 }
 document.querySelectorAll(".tab").forEach(b => b.onclick = () => {
   document.querySelectorAll(".tab").forEach(x => x.classList.toggle("active", x === b)); state.tab = b.dataset.tab;
-  ["signals", "exec", "positions", "closed", "history", "audit"].forEach(t => $("#view-" + t).classList.toggle("hidden", t === "signals" ? !sv() : t !== state.tab));
+  ["signals", "exec", "positions", "bench", "closed", "history", "audit"].forEach(t => $("#view-" + t).classList.toggle("hidden", t === "signals" ? !sv() : t !== state.tab));
   if (sv() && state.status) { state.limit = 40; state.filter = "tradable"; renderHero(); renderChips(); renderList(true); } else loadTab(state.tab);
 });
 

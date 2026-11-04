@@ -81,12 +81,27 @@ def job_cache() -> None:
 
 def job_pnl() -> None:
     """End-of-day P&L snapshot (after the cache refresh holds the day's close). Idempotent; first run backfills all past days."""
-    from desk import pnl
+    from desk import bench, pnl
     try:
         log.info("Daily PnL job: %s", pnl.rebuild())
-        job_sync()
     except Exception as e:  # noqa: BLE001
         log.warning("pnl snapshot failed: %s", e)
+    try:
+        log.info("Benchmark job: %s", bench.rebuild())
+    except Exception as e:  # noqa: BLE001
+        log.warning("benchmark rebuild failed: %s", e)
+    job_sync()
+
+
+def job_bench_live() -> None:
+    """Every 5 minutes in market hours: running day % of held stocks, S&P 500 and account equity vs the previous close."""
+    from desk import bench
+    try:
+        r = bench.live()
+        if not r.get("skipped"):
+            log.info("Benchmark live: %s", r)
+    except Exception as e:  # noqa: BLE001
+        log.warning("benchmark live failed: %s", e)
 
 
 def job_execute() -> None:
@@ -129,6 +144,7 @@ def main() -> None:
     ph, pm = map(int, str(t.get("pnl_time_et", "17:10")).split(":"))
     sched.add_job(job_pnl, "cron", day_of_week="mon-fri", hour=ph, minute=pm, id="pnl", misfire_grace_time=3600, max_instances=1)
     sched.add_job(job_pnl, "date", run_date=datetime.now(timezone.utc) + timedelta(seconds=10), id="pnl_startup")     # backfill / catch up after restarts
+    sched.add_job(job_bench_live, "cron", day_of_week="mon-fri", hour="9-16", minute="*/5", id="bench_live", misfire_grace_time=120, max_instances=1, coalesce=True)
     sched.add_job(job_execute, "cron", day_of_week="mon-fri", hour=eh, minute=em, id="execute", misfire_grace_time=600)
     sched.add_job(job_scan, "date", run_date=datetime.now(timezone.utc) + timedelta(seconds=20), id="scan_startup")   # catch up after restarts / late cache
     sched.add_job(job_snapshot, "interval", minutes=int(t["snapshot_every_min"]), id="snapshot")

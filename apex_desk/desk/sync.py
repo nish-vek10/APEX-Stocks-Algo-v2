@@ -197,6 +197,9 @@ def _reconcile(c: Cloud, rows: List[Dict[str, Any]]) -> Dict[str, int]:
         elif C["exec_status"] == "none" and cur["exec_status"] == "queued" and open_:
             db.x("UPDATE signals SET exec_status='none', batch_id=NULL WHERE id=?", (L["id"],))
             st["unqueued"] += 1
+        elif C["exec_status"] == "queued" and cur["exec_status"] == "none" and cur["decision"] != "trade" and C.get("decision") != "trade":
+            c.patch("desk_signals", {"sid": sid}, {"exec_status": "none", "batch_id": None})      # stale cloud 'queued' left behind after a local roll-forward
+            st["unqueued"] += 1
     return st
 
 
@@ -234,6 +237,26 @@ def _push_pnl(c: Cloud) -> int:
     return len(pos)
 
 
+def _push_bench(c: Cloud) -> int:
+    """Benchmark tables: full push once, then only the last 7 days whenever a new snapshot / live tick exists."""
+    rev = db.kv_get("bench_rev")
+    if not rev or db.kv_get("bench_pushed") == rev:
+        return 0
+    from desk import bench
+    full = db.kv_get("bench_full") != "v1"
+    since = "0000-00-00" if full else str((clock.now_utc() - timedelta(days=7)).date())
+    day = [r for r in bench.daily() if r["date"] >= since]
+    stk = [r for r in bench.stocks() if r["date"] >= since]
+    if day:
+        c.upsert("desk_bench_daily", day, "date", chunk=500)
+    if stk:
+        c.upsert("desk_bench_stock", stk, "date,ticker", chunk=500)
+    if full:
+        db.kv_set("bench_full", "v1")
+    db.kv_set("bench_pushed", rev)
+    return len(stk)
+
+
 def _commands(c: Cloud) -> None:
     global _scan_thread
     for cmd in c.get("desk_commands", done_at="is.null", cmd="eq.scan"):
@@ -266,6 +289,7 @@ def cycle(prune: bool = False) -> Dict[str, Any]:
     _push_status(c)
     _push_positions_audit(c)
     _push_pnl(c)
+    _push_bench(c)
     _commands(c)
     if prune:
         _prune(c)
