@@ -374,7 +374,8 @@ async function loadBench() {
   setHtml($("#tblBench"), `<thead><tr>${cols.map((c, i) => `<th${i < 2 ? ' class="stk"' : ""}${tips[c[0]] ? ` title="${tips[c[0]]}"` : ""}>${c[0]}</th>`).join("")}</tr></thead><tbody>${daily.map(r => `<tr class="${r.live ? "live" : ""}">${cols.map((c, i) => `<td${i < 2 ? ' class="stk"' : ""}>${c[1](r)}</td>`).join("")}</tr>`).join("") || `<tr><td colspan="8" class="muted">No data yet. The first rows appear after the next snapshot.</td></tr>`}</tbody>`);
   const live = daily.find(r => r.live);
   const ln = t => `<div>${t}</div>`;
-  setHtml($("#benchNote"), ln(`<b>Day %</b> = close vs previous close, price only. <b>EW vs S&amp;P</b> = Equal weight minus S&amp;P 500. <b>WTD vs S&amp;P</b> = Risk weighted minus S&amp;P 500 (percentage points ahead of or behind the index; positive = we beat it).`) +
+  setHtml($("#benchNote"), ln(`<b>Day %</b> = close vs previous close, price only. <b>EW vs S&amp;P</b> = Equal weight minus S&amp;P 500. <b>WTD vs S&amp;P</b> = Risk weighted minus S&amp;P 500 (percentage points ahead of or behind the index;`) +
+    ln(`positive = we beat it).`) +
     ln(`<b>Portfolio</b> = change in portfolio equity (100,000 start + all P&amp;L since inception) vs the previous close; the Live PnL card shows the same P&amp;L.`) +
     (live ? ln(`<span class="b-livenote">Live row refreshes every minute (last ${String(live.updated_at || "").slice(11, 16)} UTC); completed days use the official close.</span>`) : ""));
 }
