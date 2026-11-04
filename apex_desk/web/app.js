@@ -113,19 +113,21 @@ function renderKpis() {
     ["Equity", usd(s.equity), s.executor ? `${String(s.executor.broker).toUpperCase()} snapshot at ${s.executor.ts.slice(11, 16)} UTC` : "No broker snapshot yet", "", null],
   ];
   const d0 = (state.pnlDaily || [])[0];                                          // newest close-of-business snapshot
-  k.push(d0 ? ["Daily PnL &rsaquo;", sgn(d0.pnl), `${dmy(d0.date)}  ·  ${d0.n_opened} opened  ·  ${usd(d0.risk_opened)} risk` + (d0.equity != null ? `<br>Equity ${usd(d0.equity)}` : ""), d0.pnl >= 0 ? "ok" : "bad", null, "pnl"]
-            : ["Daily PnL &rsaquo;", "-", "First snapshot after the next close", "", null, "pnl"]);
+  k.push(d0 ? ["Live PnL &rsaquo;", sgn(d0.pnl), `<b>${dmy(d0.date)}</b>` + (d0.equity != null ? `<br><b>EQUITY ${usd(d0.equity)}</b>` : ""), d0.pnl >= 0 ? "ok" : "bad", null, "pnl"]
+            : ["Live PnL &rsaquo;", "-", "First snapshot after the next close", "", null, "pnl"]);
   setHtml($("#kpis"), k.map(([t, v, sub, cls, bar, id]) => `<div class="kpi ${cls}${id ? " clk" : ""}"${id ? ` data-k="${id}" title="Click for every day"` : ""}><small>${t}</small><b>${v}</b><em>${sub}</em>${bar == null ? "" : `<div class="bar"><i style="width:${bar}%"></i></div>`}</div>`).join(""));
 }
 const sgn = (v, d = 0) => v == null ? "-" : `${v >= 0 ? "+" : "-"}$${Math.abs(v).toLocaleString("en-GB", {maximumFractionDigits: d})}`;
 $("#kpis").onclick = e => { if (e.target.closest("[data-k=pnl]")) openPnlModal(); };
 function pnlModalHtml() {
   const d = state.pnlDaily || [];
-  const cols = [["Date", r => `<b>${dmy(r.date)}</b>`], ["Combined PnL", r => pnlCell(r.pnl)], ["vs prior day", r => r.chg == null ? "" : pnlCell(r.chg)], ["Equity", r => r.equity == null ? "" : usd(r.equity)],
-    ["Equity %", r => bpct(r.eq_pct)], ["Open positions", r => r.n_open], ["Opened that day", r => r.n_opened || ""], ["Risk of those", r => r.n_opened ? usd(r.risk_opened) : ""], ["Total open risk", r => usd(r.risk_open)]];
+  const cols = [["Date", r => `<b>${dmy(r.date)}</b>${r.live ? ' <span class="badge b-live">LIVE</span>' : ""}`], ["Combined PnL", r => pnlCell(r.pnl)], ["vs prior day", r => r.chg == null ? "" : pnlCell(r.chg)],
+    ["Equity", r => r.equity == null ? "" : usd(r.equity)], ["Equity %", r => bpct(r.eq_pct)], ["Open positions", r => r.n_open, "c"], ["New opened", r => r.n_opened || "", "c"],
+    ["Risk of those", r => r.n_opened ? usd(r.risk_opened) : ""], ["Total open risk", r => usd(r.risk_open)]];
   const start = d.length && d[0].equity != null ? d[0].equity - d[0].pnl - (d[0].realised || 0) : null;                      // starting equity = equity - all P&L since inception
-  const rows = d.map((r, i) => ({...r, chg: d[i + 1] ? r.pnl - d[i + 1].pnl : null, eq_pct: r.equity == null ? null : (d[i + 1] ? d[i + 1].equity : start) ? r.equity / (d[i + 1] ? d[i + 1].equity : start) - 1 : null}));
-  return `<table><thead><tr>${cols.map(c => `<th>${c[0]}</th>`).join("")}</tr></thead><tbody>${rows.map(r => `<tr>${cols.map(c => `<td>${c[1](r)}</td>`).join("")}</tr>`).join("") || `<tr><td colspan="${cols.length}" class="muted">No snapshots yet. The first one is taken after the next US close.</td></tr>`}</tbody></table>`;
+  const rows = d.map((r, i) => { const prev = d[i + 1] ? d[i + 1].equity : start; return {...r, chg: d[i + 1] ? r.pnl - d[i + 1].pnl : null, eq_pct: r.equity != null && prev ? r.equity / prev - 1 : null}; });
+  const cl = c => c[2] ? ` class="${c[2]}"` : "";
+  return `<table><thead><tr>${cols.map(c => `<th${cl(c)}>${c[0]}</th>`).join("")}</tr></thead><tbody>${rows.map(r => `<tr>${cols.map(c => `<td${cl(c)}>${c[1](r)}</td>`).join("")}</tr>`).join("") || `<tr><td colspan="${cols.length}" class="muted">No snapshots yet. The first one is taken after the next US close.</td></tr>`}</tbody></table>`;
 }
 async function openPnlModal() { try { state.pnlDaily = await api("/api/pnl/daily"); } catch (e) { /* keep the last copy */ } $("#pnlBody").innerHTML = pnlModalHtml(); $("#pnlModal").classList.remove("hidden"); }
 $("#pnlClose").onclick = () => $("#pnlModal").classList.add("hidden");
@@ -359,17 +361,21 @@ async function loadBench() {
   Object.assign(bench, {rows: daily, tickers, by});
   const done = daily.filter(r => !r.live), ex = (r, k) => r[k] == null || r.spx_pct == null ? null : r[k] - r.spx_pct;
   const beat = (k) => { const x = done.filter(r => ex(r, k) != null); return x.length ? `${x.filter(r => ex(r, k) > 0).length} of ${x.length} days` : "-"; };
+  const lastEq = daily.find(r => r.equity != null), firstEq = [...daily].reverse().find(r => r.equity_prev != null);          // latest equity (live row included) vs the start
+  const eqChg = lastEq && firstEq && firstEq.equity_prev ? lastEq.equity / firstEq.equity_prev - 1 : null, eqSub = lastEq && firstEq ? `equity ${usd(lastEq.equity)} vs ${usd(firstEq.equity_prev)} start${lastEq.live ? " (live)" : ""}` : "equity change since the start";
   const card = (t, v, sub) => `<div class="kpi"><small>${t}</small><b>${v || "-"}</b><em>${sub}</em></div>`;
   setHtml($("#benchSum"), card("S&amp;P 500", bpct(compound(done, "spx_pct")), "compounded, completed days") + card("Equal weight", bpct(compound(done, "ew_pct")), `beat S&amp;P on ${beat("ew_pct")}`) +
-    card("Risk weighted", bpct(compound(done, "w_pct")), `beat S&amp;P on ${beat("w_pct")}`) + card("Portfolio", bpct(compound(done, "port_pct")), "equity change since the 100k start"));
+    card("Risk weighted", bpct(compound(done, "w_pct")), `beat S&amp;P on ${beat("w_pct")}`) + card("Portfolio", bpct(eqChg), eqSub));
   const cols = [["Date", r => `<b>${dmy(r.date)}</b>${r.live ? ' <span class="badge b-live">LIVE</span>' : ""}`], ["S&amp;P 500", r => bpct(r.spx_pct)], ["Portfolio", r => bpct(r.port_pct)], ["Equal weight", r => bpct(r.ew_pct)],
     ["Risk weighted", r => bpct(r.w_pct)], ["EW vs S&amp;P", r => bpct(ex(r, "ew_pct"))], ["Wtd vs S&amp;P", r => bpct(ex(r, "w_pct"))], ["Stocks", r => r.n_stocks || ""],
     ...tickers.map(t => [t, r => { const x = by[r.date + "|" + t]; return x ? bpct(x.pct) : ""; }])];
   const tips = {"EW vs S&amp;P": "Equal weight minus S&P 500 (percentage points)", "Wtd vs S&amp;P": "Risk weighted minus S&P 500 (percentage points)", "Portfolio": "Change in portfolio equity: 100,000 start + all P&L since inception (open positions at the close + realised), day vs previous close", "Equal weight": "Average day % of the stocks held (1/N each)", "Risk weighted": "Average day % weighted by tier risk multiple (A 1.0, B/W 0.5)"};
   setHtml($("#tblBench"), `<thead><tr>${cols.map((c, i) => `<th${i < 2 ? ' class="stk"' : ""}${tips[c[0]] ? ` title="${tips[c[0]]}"` : ""}>${c[0]}</th>`).join("")}</tr></thead><tbody>${daily.map(r => `<tr class="${r.live ? "live" : ""}">${cols.map((c, i) => `<td${i < 2 ? ' class="stk"' : ""}>${c[1](r)}</td>`).join("")}</tr>`).join("") || `<tr><td colspan="8" class="muted">No data yet. The first rows appear after the next snapshot.</td></tr>`}</tbody>`);
   const live = daily.find(r => r.live);
-  setHtml($("#benchNote"), `<b>Day %</b> = close vs previous close, price only. <b>EW vs S&amp;P</b> = Equal weight minus S&amp;P 500. <b>WTD vs S&amp;P</b> = Risk weighted minus S&amp;P 500 (percentage points ahead of or behind the index; positive = we beat it). <b>Portfolio</b> = change in portfolio equity (100,000 start + all P&amp;L since inception) vs the previous close; the same equity is on the Daily PnL card.` +
-    (live ? ` <span class="b-livenote">Live row refreshes every 5 minutes (last ${String(live.updated_at || "").slice(11, 16)} UTC); completed days use the official close.</span>` : ""));
+  const ln = t => `<div>${t}</div>`;
+  setHtml($("#benchNote"), ln(`<b>Day %</b> = close vs previous close, price only. <b>EW vs S&amp;P</b> = Equal weight minus S&amp;P 500. <b>WTD vs S&amp;P</b> = Risk weighted minus S&amp;P 500 (percentage points ahead of or behind the index; positive = we beat it).`) +
+    ln(`<b>Portfolio</b> = change in portfolio equity (100,000 start + all P&amp;L since inception) vs the previous close; the same equity is on the Live PnL card.`) +
+    (live ? ln(`<span class="b-livenote">Live row refreshes every minute (last ${String(live.updated_at || "").slice(11, 16)} UTC); completed days use the official close.</span>`) : ""));
 }
 $("#benchCsv").onclick = () => {
   const head = ["Date", "SPX", "Portfolio equity", "Equal weight", "Risk weighted", ...bench.tickers], f = v => v == null ? "" : (v * 100).toFixed(2);
@@ -512,6 +518,8 @@ async function refresh() {
     const sel = $("#reviewer"); if (!sel.options.length) { s.reviewers.forEach(n => sel.add(new Option(n, n))); sel.value = localStorage.getItem("desk_reviewer") || s.reviewers[0]; sel.onchange = () => localStorage.setItem("desk_reviewer", sel.value); }
     const bdv = state.status.board_date, bset = new Set(state.signals.filter(x => !bdv || x.signal_date >= bdv).map(x => x.ticker));
     $("#tbSig").textContent = state.signals.filter(x => !bdv || x.signal_date >= bdv).filter(isTradable).length;
+    $("#tbPos").textContent = s.exposure.open_positions;
+    api("/api/positions?status=closed").then(c => { $("#tbClosed").textContent = c.length; }).catch(() => {});
     $("#tbWatch").textContent = state.signals.filter(x => bdv && x.signal_date < bdv && isTradable(x) && !bset.has(x.ticker)).length;
     tick(); renderHero(); renderKpis(); renderChips(); renderList(false); renderAction();
   } catch (e) { toast("Cannot load the desk data: " + e.message, true); }

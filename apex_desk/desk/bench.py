@@ -7,10 +7,10 @@ Day % = close / previous TRADING-day close - 1 (the overnight gap is included), 
   w_pct     risk weighted: weights follow the tier risk multiple (A 1.0, B / W 0.5, starred C 0.5), normalised to 100%
   port_pct  model equity vs the previous close: start equity (bench.start_equity, 100,000) + all P&L since inception (open positions at the close + realised), from the Daily PnL snapshot
 A stock is held from its entry date to its exit date (a ticker entered twice counts once, at its highest multiple).
-Schedule: live() every 5 min in market hours, rebuild() 17:10 ET + scheduler start (history / backfill). Needs pnl.rebuild() first (equity).
+Schedule: live() every minute in market hours (also writes the Live PnL row), rebuild() 17:10 ET + scheduler start (history / backfill). Needs pnl.rebuild() first (equity).
 A missing close never produces a multi-day move: if the previous trading day has no close, the % stays blank.
 Env (.env, Work PC only):  DESK_OANDA_TOKEN  DESK_OANDA_ENV=practice|live   (optional DESK_OANDA_INSTRUMENT, default SPX500_USD)
-CLI: python -m desk bench [--live | --check | --refresh]
+CLI: python -m desk bench [--live | --check | --refresh | --recon]
 """
 from __future__ import annotations
 
@@ -228,7 +228,7 @@ def rebuild(refresh_index: bool = False) -> Dict[str, Any]:
 
 # ── today ──────────────────────────────────────────────────────────────────────
 def live() -> Dict[str, Any]:
-    """Every 5 minutes, 09:30-16:00 ET: running day % vs the previous close for the held stocks (MT5 mid), the S&P 500 (OANDA) and the model equity
+    """Every minute, 09:30-16:00 ET: running day % vs the previous close for the held stocks (MT5 mid), the S&P 500 (OANDA) and the model equity
     (start equity + realised + open positions marked at those prices). Needs the scheduler's MT5 lock."""
     _ensure()
     from desk import pnl
@@ -271,11 +271,8 @@ def live() -> Dict[str, Any]:
         cx.execute("DELETE FROM bench_stock WHERE date=?", (today,))
         cx.executemany("INSERT INTO bench_stock(date,ticker,prev_close,close,pct,weight,live) VALUES(?,?,?,?,?,?,1)", rows)
         cx.commit()
-    realised = sum(r["v"] for r in db.q("SELECT COALESCE(pnl_total, (COALESCE(exit_price, entry_price) - entry_price) * shares) AS v FROM positions "
-                                         "WHERE status='closed' AND entry_price IS NOT NULL"))
-    running = sum((px_now.get(p["ticker"], p["entry_price"]) - p["entry_price"]) * p["shares"] for p in db.q(
-        "SELECT ticker, entry_price, shares FROM positions WHERE status='open' AND entry_price IS NOT NULL"))
-    eq_live = round(pnl.start_equity() + realised + running, 2)
+    marks = pnl.live_marks(px_now, today)                                # live P&L + model equity for today (the Live PnL card, every minute)
+    eq_live = marks.get("equity")
     spx = db.kv_get("spx_close") or {}
     try:
         spx_px = spx_now()
@@ -284,7 +281,48 @@ def live() -> Dict[str, Any]:
         spx_px = None
     _write_day(today, spx, 1, spx_px, eq_live)
     db.kv_set("bench_rev", db.now_iso())
-    return {"date": today, "stocks": len(rows), "spx": spx_px, "equity": eq_live}
+    return {"date": today, "stocks": len(rows), "spx": spx_px, "pnl": marks.get("pnl"), "equity": eq_live}
+
+
+# ── reconciliation: desk model P&L vs the MT5 account (find any gap) ───────────────────────────────────────────
+def recon() -> None:
+    """Prints, per open desk position, the model P&L ((mid - fill) x shares) next to MT5's own position profit, then the totals vs account
+    equity. Differences usually come from: positions on the account that are not desk positions, spread (mid vs bid), swap, or a missing quote."""
+    _ensure()
+    import MetaTrader5 as mt5
+    from desk import pnl
+    from desk.executor import MT5_LOCK, Executor
+    rows = db.q("SELECT id,ticker,ticket,shares,entry_price,broker_symbol FROM positions WHERE status='open' AND entry_price IS NOT NULL ORDER BY ticker")
+    with MT5_LOCK:
+        ex = Executor()
+        ex.broker.connect()
+        try:
+            acc = mt5.account_info()
+            mt = {p.ticket: p for p in (mt5.positions_get() or [])}
+            print(f"{'Ticker':<7}{'Ticket':>12}{'Shares':>9}{'Entry':>10}{'MT5 open':>10}{'Mid now':>10}{'Model P&L':>12}{'MT5 profit':>12}{'MT5 swap':>10}{'Gap':>10}")
+            tm = tp = 0.0
+            for r in rows:
+                t = ex.broker.tick(r["broker_symbol"]) if r["broker_symbol"] else None
+                mid = (t.bid + t.ask) / 2 if t else None
+                model = (mid - r["entry_price"]) * r["shares"] if mid else 0.0
+                m = mt.get(r["ticket"])
+                prof = m.profit if m else None
+                tm += model
+                tp += prof or 0.0
+                gap = (model - prof) if prof is not None else None
+                print(f"{r['ticker']:<7}{r['ticket'] or 0:>12}{r['shares']:>9,.0f}{r['entry_price']:>10,.4f}{(m.price_open if m else 0):>10,.4f}{(mid or 0):>10,.4f}{model:>12,.2f}"
+                      f"{(prof if prof is not None else float('nan')):>12,.2f}{(m.swap if m else 0):>10,.2f}{(gap if gap is not None else float('nan')):>10,.2f}"
+                      + ("   <-- no MT5 position with this ticket" if not m else "") + ("   <-- no quote" if mid is None else ""))
+            extra = [p for tk, p in mt.items() if tk not in {r["ticket"] for r in rows}]
+            for p in extra:
+                print(f"MT5-only position (not a desk position): {p.symbol} ticket={p.ticket} volume={p.volume} profit={p.profit:,.2f}")
+            closed = db.one("SELECT COALESCE(SUM(pnl_total),0) AS v FROM positions WHERE status='closed'")["v"]
+            print(f"\nTotals: model running {tm:,.2f} | MT5 floating {tp:,.2f} | all MT5 positions floating {sum(p.profit for p in mt.values()):,.2f}")
+            print(f"Account: balance {acc.balance:,.2f} equity {acc.equity:,.2f} (equity - balance = {acc.equity - acc.balance:,.2f}) | profit field {acc.profit:,.2f}")
+            print(f"Desk realised (closed positions, pnl_total) {closed:,.2f} | model equity {pnl.start_equity() + closed + tm:,.2f} vs MT5 equity {acc.equity:,.2f} vs start {pnl.start_equity():,.0f}: "
+                  f"MT5 total P&L {acc.equity - pnl.start_equity():,.2f}, model {closed + tm:,.2f}")
+        finally:
+            ex.broker.disconnect()
 
 
 # ── verification: our stored closes vs OANDA daily candles (16:00 ET alignment) and SPY (TwelveData, independent reference) ──

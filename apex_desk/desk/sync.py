@@ -238,11 +238,15 @@ def _push_pnl(c: Cloud) -> int:
     if not rev or db.kv_get("pnl_pushed") == rev:
         return 0
     from desk import pnl
-    pos, day = pnl.per_position(), pnl.daily()
+    full = db.kv_get("pnl_full") != "v2"                                  # full history once (new columns), then only the last 7 days every minute
+    since = "0000-00-00" if full else str((clock.now_utc() - timedelta(days=7)).date())
+    pos, day = pnl.per_position(since), pnl.daily(since)
     if pos:
         c.upsert("desk_pnl_pos", pos, "position_id,date", chunk=500)
     if day:
         c.upsert("desk_pnl_daily", day, "date", chunk=500)
+    if full:
+        db.kv_set("pnl_full", "v2")
     db.kv_set("pnl_pushed", rev)
     return len(pos)
 
