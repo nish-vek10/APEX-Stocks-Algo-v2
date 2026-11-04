@@ -143,6 +143,7 @@ async function openPnlModal() { try { state.pnlDaily = await api("/api/pnl/daily
 $("#pnlClose").onclick = () => $("#pnlModal").classList.add("hidden");
 $("#pnlModal").onclick = e => { if (e.target.id === "pnlModal") $("#pnlModal").classList.add("hidden"); };
 function renderAction() {
+  $("#dock").classList.toggle("hidden", !sv());
   const s = state.status, b = s.batch, c = s.counts, queued = c.queued > 0 || c.executed > 0;
   $("#btnConfirm").textContent = queued ? `QUEUED FOR THE OPEN (${c.queued + c.executed})` : `TRADE ALL CONFIRMED (${b.count})`;
   $("#btnConfirm").disabled = queued || !b.count || !state.windowOpen;
@@ -493,6 +494,7 @@ async function loadExecInner() {
 document.querySelectorAll(".tab").forEach(b => b.onclick = () => {
   document.querySelectorAll(".tab").forEach(x => x.classList.toggle("active", x === b)); state.tab = b.dataset.tab;
   ["signals", "exec", "positions", "bench", "closed", "history", "audit"].forEach(t => $("#view-" + t).classList.toggle("hidden", t === "signals" ? !sv() : t !== state.tab));
+  $("#dock").classList.toggle("hidden", !sv());
   if (sv() && state.status) { state.limit = 40; state.filter = "tradable"; renderHero(); renderChips(); renderList(true); } else loadTab(state.tab);
 });
 
