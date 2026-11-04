@@ -228,7 +228,7 @@ def rebuild(refresh_index: bool = False) -> Dict[str, Any]:
 
 # ── today ──────────────────────────────────────────────────────────────────────
 def live() -> Dict[str, Any]:
-    """Every minute, 09:30-16:00 ET: running day % vs the previous close for the held stocks (MT5 mid), the S&P 500 (OANDA) and the model equity
+    """Every minute, 09:30-16:00 ET: running day % vs the previous close for the held stocks (MT5 mid; P&L marks use the bid), the S&P 500 (OANDA) and the model equity
     (start equity + realised + open positions marked at those prices). Needs the scheduler's MT5 lock."""
     _ensure()
     from desk import pnl
@@ -260,7 +260,7 @@ def live() -> Dict[str, Any]:
                 if before.empty or tick is None:
                     continue
                 prev, px = float(before["close"].iloc[-1]), (tick.bid + tick.ask) / 2
-                px_now[t] = px
+                px_now[t] = float(tick.bid)                                   # P&L is marked at the bid, like MT5 values long positions
                 rows.append((today, t, prev, px, px / prev - 1, h["w"]))
         finally:
             ex.broker.disconnect()
