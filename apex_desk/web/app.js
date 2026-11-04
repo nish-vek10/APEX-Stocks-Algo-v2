@@ -524,7 +524,7 @@ async function refresh() {
     const t0 = Date.now(); const s = await api("/api/status"); offsetMs = new Date(s.now_utc) - (t0 + Date.now()) / 2;
     state.status = s; state.signals = await api("/api/signals?session=" + s.session_date);
     try { state.pnlDaily = await api("/api/pnl/daily"); } catch (e) { state.pnlDaily = state.pnlDaily || []; }      // optional: older backends / v5 SQL not run yet
-    $("#modePill").textContent = s.mode === "live" ? "LIVE ORDERS" : "DRY RUN"; $("#modePill").className = "pill" + (s.mode === "live" ? " live" : "");
+    $("#modePill").textContent = s.mode === "live" ? "LIVE" : "DRY RUN"; $("#modePill").className = "pill" + (s.mode === "live" ? " live" : "");
     $("#brandName").textContent = s.name.toUpperCase();
     const sel = $("#reviewer"); if (!sel.options.length) { s.reviewers.forEach(n => sel.add(new Option(n, n))); sel.value = localStorage.getItem("desk_reviewer") || s.reviewers[0]; sel.onchange = () => localStorage.setItem("desk_reviewer", sel.value); }
     const bdv = state.status.board_date, bset = new Set(state.signals.filter(x => !bdv || x.signal_date >= bdv).map(x => x.ticker));
