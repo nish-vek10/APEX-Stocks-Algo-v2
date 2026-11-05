@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
@@ -122,12 +123,39 @@ def spx_closes(start: str, refresh: bool = False) -> Dict[str, float]:
     return have
 
 
+SPX_RETRY_S = (0, 2, 3, 5)                                       # waits before each attempt: up to 10 s in total (OANDA can publish a candle seconds late)
+SPX_STALE_S = 300                                                # reuse the last good price for at most 5 minutes
+
+
 def spx_now() -> Optional[float]:
+    """Latest S&P 500 price. Retries for up to ~10 s on any OANDA error or empty answer; if it still fails, reuses the last good price
+    (max 5 min old) so the live row never shows a blank S&P. Returns None only when nothing fresh exists."""
     if not configured():
         return None
-    j = _oanda(f"/v3/instruments/{_instrument()}/candles", granularity="M5", price="M", count=2)
-    cs = [c for c in j.get("candles", []) if c.get("mid")]
-    return float(cs[-1]["mid"]["c"]) if cs else None
+    err: Optional[Exception] = None
+    for wait in SPX_RETRY_S:
+        if wait:
+            time.sleep(wait)
+        try:
+            j = _oanda(f"/v3/instruments/{_instrument()}/candles", granularity="M5", price="M", count=2)
+            cs = [c for c in j.get("candles", []) if c.get("mid")]
+            if cs:
+                px = float(cs[-1]["mid"]["c"])
+                db.kv_set("spx_last", {"px": px, "ts": clock.now_utc().isoformat()})
+                return px
+            err = RuntimeError("OANDA returned no candles")
+        except Exception as e:  # noqa: BLE001
+            err = e
+    last = db.kv_get("spx_last") or {}
+    try:
+        age = (clock.now_utc() - datetime.fromisoformat(last["ts"])).total_seconds()
+    except Exception:  # noqa: BLE001
+        age = None
+    if age is not None and age <= SPX_STALE_S:
+        log.warning("OANDA live index failed after %d tries (%s): reusing last price %.1f (%.0fs old)", len(SPX_RETRY_S), err, last["px"], age)
+        return float(last["px"])
+    log.warning("OANDA live index failed after %d tries: %s (no fresh fallback)", len(SPX_RETRY_S), err)
+    return None
 
 
 # ── helpers ────────────────────────────────────────────────────────────────────
