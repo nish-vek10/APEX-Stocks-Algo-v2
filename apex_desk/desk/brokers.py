@@ -84,11 +84,22 @@ class MT5Broker(BaseBroker):
             return self._resolved[ticker]
         try:
             import MetaTrader5 as mt5
-            for suf in self.SUFFIXES:
-                if mt5.symbol_info(ticker + suf) is not None:
-                    self._resolved[ticker] = ticker + suf              # only hits are cached (a miss may just be a dropped connection)
-                    log.info("Symbol auto-resolved: %s -> %s (not in the symbol map)", ticker, ticker + suf)
-                    return ticker + suf
+            saved = db.kv_get("sym_auto") or {}                       # persisted auto-map: survives restarts, resolved once (at the scan), reused by the executor
+            hit = (saved.get(ticker) or {}).get("sym")
+            if hit and mt5.symbol_info(hit) is not None:              # re-validated against the broker every time; a vanished symbol is re-resolved
+                self._resolved[ticker] = hit
+                return hit
+            found = [(suf, mt5.symbol_info(ticker + suf)) for suf in self.SUFFIXES]
+            found = [(suf, i) for suf, i in found if i is not None]
+            if found:
+                full = int(getattr(mt5, "SYMBOL_TRADE_MODE_FULL", 4))
+                best = next(((suf, i) for suf, i in found if int(getattr(i, "trade_mode", full)) == full), found[0])   # prefer a variant that is open to buy
+                sym = ticker + best[0]
+                self._resolved[ticker] = sym                           # only hits are cached (a miss may just be a dropped connection)
+                saved[ticker] = {"sym": sym, "desc": str(getattr(best[1], "description", "") or ""), "at": db.now_iso()}
+                db.kv_set("sym_auto", saved)
+                log.info("Symbol auto-mapped and saved: %s -> %s (%s)", ticker, sym, saved[ticker]["desc"] or "no description")
+                return sym
         except Exception as exc:                           # noqa: BLE001
             log.debug("symbol lookup failed for %s: %s", ticker, exc)
         return ""
